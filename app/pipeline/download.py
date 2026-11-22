@@ -70,6 +70,7 @@ def _extract(url: str, opts: dict, download: bool):
         known = _good_client.get("youtube")
         tries = ([known] if known else []) + [None] + [c for c in FALLBACK_CLIENTS if c != known]
     last: Exception | None = None
+    errors: list[str] = []
     for client in tries:
         o = dict(opts)
         if client:
@@ -87,9 +88,12 @@ def _extract(url: str, opts: dict, download: bool):
             last = e
             if not (is_yt and _is_bot_block(e)):
                 raise
-            log.warning("YouTube refuse (lecteur %s) : %s", client or "défaut", str(e)[:160])
+            short = " ".join(str(e).replace("ERROR: ", "").split())[:160]
+            errors.append(f"[{client or 'défaut'}] {short}")
+            log.warning("YouTube refuse (lecteur %s) : %s", client or "défaut", short)
     assert last is not None
-    raise last
+    # message complet : toutes les tentatives, pour comprendre ce que YouTube bloque
+    raise RuntimeError(" | ".join(errors[:4]) + (" | …" if len(errors) > 4 else "")) from last
 
 
 def probe(url: str, cookies: str | None = None) -> dict:
@@ -132,12 +136,16 @@ def download(
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             done = d.get("downloaded_bytes") or 0
             frac = (done / total) if total else 0
-            speed = d.get("_speed_str", "").strip()
-            progress(min(frac, 0.99), f"Téléchargement… {speed}")
+            speed = (d.get("_speed_str") or "").strip()
+            size = f"{done / 1e6:.0f} Mo" if done else ""
+            info = " · ".join(x for x in (size, speed if speed and not speed.startswith("0.00") else "") if x)
+            progress(min(frac, 0.99), f"Téléchargement… {info}".strip())
 
     opts = {
         **_base_opts(cookies),
-        "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
+        # ≤1080p et ≤30 i/s en priorité : le clip final est en 30 i/s, et le fichier pèse 2x moins
+        "format": ("bv*[height<=1080][fps<=30][ext=mp4]+ba[ext=m4a]/bv*[height<=1080][fps<=30]+ba/"
+                   "b[height<=1080][fps<=30]/bv*[height<=1080]+ba/b[height<=1080]/b"),
         "merge_output_format": "mp4",
         "outtmpl": str(out_dir / "source.%(ext)s"),
         "progress_hooks": [hook],
@@ -159,6 +167,7 @@ def download(
         e = float(end) if end else float(info0.get("duration") or 10**7)
         opts["download_ranges"] = download_range_func(None, [(s, e)])
         opts["force_keyframes_at_cuts"] = True
+    check_space(out_dir, start, end, info0.get("duration") or 0)
 
     info = _extract(url, opts, download=True)
 
@@ -256,6 +265,33 @@ def fetch_timestamp_comments(url: str, cookies: str | None, offset: float = 0.0,
             if t >= 0:
                 out.append({"t": t, "likes": int(c.get("like_count") or 0), "text": text[:200]})
     return out
+
+
+MAX_HOURS = 2.05         # au-delà, il faut choisir une plage (2 h max par projet)
+GB_PER_HOUR = 2.4        # ≈ 1080p 30 i/s ; x2 pendant la fusion audio + vidéo
+
+
+def check_space(out_dir: Path, start: float | None, end: float | None, duration: float) -> None:
+    """Refuse proprement un téléchargement qui ne tiendrait pas sur le disque."""
+    import shutil
+
+    length = (float(end) if end else duration) - float(start or 0)
+    if length <= 0:
+        return
+    hours = length / 3600
+    if hours > MAX_HOURS:
+        raise RuntimeError(
+            f"Vidéo trop longue ({hours:.1f} h). Choisis une plage de 2 h maximum avec « Ajuster la plage », "
+            "puis analyse les autres parties dans d'autres projets."
+        )
+    need = hours * GB_PER_HOUR * 2 + 1.5
+    free = shutil.disk_usage(out_dir).free / 1e9
+    if need > free:
+        raise RuntimeError(
+            f"Pas assez d'espace disque : environ {need:.0f} Go nécessaires pour {hours:.1f} h de vidéo, "
+            f"{free:.0f} Go libres. Choisis une plage plus courte, ou libère de la place "
+            "(Réglages > Système > Libérer de l'espace)."
+        )
 
 
 def parse_youtube_live_chat(path: Path, offset: float = 0.0) -> list[dict]:

@@ -71,6 +71,8 @@ export async function renderNew(view) {
   };
   const dur = Math.round(src.duration || 0);
   let rs = 0, re = dur;
+  const LONG = 2 * 3600;  // au-delà de 2 h : on propose une tranche de 1 h 30 (disque + temps de calcul)
+  if (dur > LONG) re = 5400;
   const recipe = RECIPES[draft.recipe] || RECIPES.viral;
   const kindLabel = { youtube_live: "Live YouTube", twitch_vod: "VOD Twitch", twitch_live: "Live Twitch", twitch_clip: "Clip Twitch",
     youtube: "YouTube", youtube_short: "Short YouTube", upload: "Fichier importé" }[src.kind] || "Vidéo";
@@ -89,8 +91,9 @@ export async function renderNew(view) {
         <div class="range-box stack">
           <div class="row between"><b>Ajuster la plage ${icon("info", "sm")}</b><span class="small" style="color:var(--warn)" id="rangeinfo">${dur ? "Analyse toute la vidéo" : ""}</span></div>
           ${dur ? `<div class="dual-range" id="dr"><div class="fill" id="drfill"></div>
-            <input type="range" id="r1" min="0" max="${dur}" value="0" step="1"><input type="range" id="r2" min="0" max="${dur}" value="${dur}" step="1"></div>` : ""}
-          <div class="times"><input class="input" id="t1" value="${fmtClock(0)}"><span class="faint" id="tlen">${dur ? fmtClock(dur) : "Durée inconnue"}</span><input class="input" id="t2" value="${dur ? fmtClock(dur) : ""}" placeholder="fin"></div>
+            <input type="range" id="r1" min="0" max="${dur}" value="0" step="1"><input type="range" id="r2" min="0" max="${dur}" value="${re}" step="1"></div>` : ""}
+          <div class="times"><input class="input" id="t1" value="${fmtClock(0)}"><span class="faint" id="tlen">${dur ? fmtClock(dur) : "Durée inconnue"}</span><input class="input" id="t2" value="${dur ? fmtClock(re) : ""}" placeholder="fin"></div>
+          ${dur > LONG ? `<p class="small" style="color:var(--warn);margin:0">Vidéo de ${fmtDur(dur)} : pour tenir dans l'espace gratuit et aller vite, analyse-la par tranches de 1 h 30 maximum (une tranche = un projet). Déplace le curseur pour choisir le passage.</p>` : ""}
           ${src.is_live ? `<p class="small" style="color:var(--warn);margin:0">Ce live est en cours : choisis une plage (ex. les 30 dernières minutes) ou attends la rediffusion.</p>` : ""}
           <div class="row between wrap" style="margin-top:6px"><span class="muted">Mise en page</span>
             <select class="select-inline" id="layout_mode" style="color:var(--text)">${LAYOUTS.map(([v, l]) => `<option value="${v}" ${o.layout_mode === v ? "selected" : ""}>${icon ? "" : ""}${l}</option>`).join("")}</select></div>
@@ -286,6 +289,7 @@ export async function renderNew(view) {
     if (dur && (rs > 0 || re < dur)) { opts.range_start = rs; opts.range_end = re; }
     else if (!dur && $("#t2").value) { opts.range_start = rs; opts.range_end = re; }
     if (src.is_live && opts.range_end == null) return toast("Live en cours : choisis une plage à analyser.", "err");
+    if ((opts.range_end ?? dur) - (opts.range_start ?? 0) > 2.05 * 3600) return toast("Plage trop longue : 2 h maximum par projet.", "err");
     btn.disabled = true;
     btn.textContent = "Création…";
     try {

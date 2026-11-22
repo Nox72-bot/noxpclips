@@ -65,6 +65,8 @@ export async function renderSettings(view) {
       <div class="card"><h2>${icon("info")} Système</h2>
         <div class="row wrap small muted" style="gap:8px 22px"><span>Version ${esc(sys.version)}</span><span>ffmpeg : ${sys.ffmpeg ? "✔" : "✖ manquant"}</span>
         <span>Espace libre : ${sys.disk_free_gb} Go</span><span>Projets : ${sys.projects_size_gb} Go</span></div>
+        <div class="row wrap" style="margin-top:12px"><button class="btn" id="cleanup">${icon("trash", "sm")} Libérer de l'espace</button>
+          <span class="small faint">Supprime les vidéos sources des projets terminés (les clips sont gardés, mais ne peuvent plus être remontés) et les projets en erreur.</span></div>
         <p class="small faint">Astuce iPhone / iPad : dans Safari, touche ${icon("share", "sm")} puis « Sur l'écran d'accueil » pour installer NOXPclips comme une appli.</p></div>
     </div>`;
 
@@ -91,6 +93,11 @@ export async function renderSettings(view) {
     if (!e.target.files[0]) return;
     await uploadWithProgress("/api/settings/cookies", e.target.files[0]);
     toast("Cookies importés ✔", "ok");
+    renderSettings(view);
+  };
+  $("#cleanup").onclick = async () => {
+    const r = await api("/api/storage/cleanup", { method: "POST" });
+    toast(`${r.freed_gb} Go libérés ✔`, "ok");
     renderSettings(view);
   };
   $("#delcookies") && ($("#delcookies").onclick = async () => { await api("/api/settings/cookies", { method: "DELETE" }); renderSettings(view); });
