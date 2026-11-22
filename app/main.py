@@ -218,8 +218,9 @@ def info(url: str):
 def _friendly(msg: str) -> str:
     low = msg.lower()
     if "sign in to confirm" in low or "not a bot" in low:
-        return ("YouTube bloque le serveur (anti-robot). Ajoute un fichier cookies.txt dans "
-                "Réglages > Téléchargement, ou utilise « Importer un fichier ».")
+        return ("YouTube bloque le serveur (anti-robot), même après plusieurs tentatives. Solutions : "
+                "un lien Twitch (VOD), un fichier cookies.txt dans Réglages > Téléchargement, "
+                "ou « Importer un fichier ».")
     if "private" in low:
         return "Cette vidéo est privée."
     if "unsupported url" in low:
