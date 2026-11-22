@@ -8,6 +8,8 @@ fi
 if ! command -v ffmpeg >/dev/null || ! python -c "import fastapi, faster_whisper" 2>/dev/null; then
   bash .devcontainer/setup.sh
 fi
+# yt-dlp suit les changements de YouTube : on prend toujours la dernière version
+pip install --user -q -U yt-dlp 2>/dev/null || true
 pkill -f "uvicorn app.main:app" 2>/dev/null || true
 setsid nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 \
   --proxy-headers --forwarded-allow-ips='*' > /tmp/noxpclips.log 2>&1 < /dev/null &

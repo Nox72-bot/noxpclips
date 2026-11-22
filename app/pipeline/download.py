@@ -49,12 +49,54 @@ def _base_opts(cookies: str | None) -> dict:
     return opts
 
 
+# Lecteurs YouTube essayés quand YouTube bloque le serveur (« confirm you're not a bot »)
+FALLBACK_CLIENTS = ["tv", "web_safari", "mweb", "android_vr", "ios", "tv_simply", "web_embedded"]
+_good_client: dict[str, str] = {}
+
+
+def _is_bot_block(err: Exception) -> bool:
+    m = str(err).lower()
+    return any(k in m for k in ("not a bot", "sign in to confirm", "confirm your age", "http error 403",
+                                "requested format is not available", "po token", "this video is unavailable"))
+
+
+def _extract(url: str, opts: dict, download: bool):
+    """extract_info avec repli automatique sur d'autres lecteurs YouTube si le serveur est bloqué."""
+    import yt_dlp
+
+    is_yt = "youtube.com" in url or "youtu.be" in url
+    tries: list[str | None] = [None]
+    if is_yt:
+        known = _good_client.get("youtube")
+        tries = ([known] if known else []) + [None] + [c for c in FALLBACK_CLIENTS if c != known]
+    last: Exception | None = None
+    for client in tries:
+        o = dict(opts)
+        if client:
+            ea = {k: dict(v) for k, v in (o.get("extractor_args") or {}).items()}
+            ea.setdefault("youtube", {})["player_client"] = [client]
+            o["extractor_args"] = ea
+        try:
+            with yt_dlp.YoutubeDL(o) as ydl:
+                info = ydl.extract_info(url, download=download)
+            if client and is_yt:
+                _good_client["youtube"] = client  # on retient le lecteur qui marche
+                log.info("YouTube : lecteur %s accepté", client)
+            return info
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if not (is_yt and _is_bot_block(e)):
+                raise
+            log.warning("YouTube refuse (lecteur %s) : %s", client or "défaut", str(e)[:160])
+    assert last is not None
+    raise last
+
+
 def probe(url: str, cookies: str | None = None) -> dict:
     """Infos rapides sans télécharger (titre, durée, miniature, live ?)."""
     import yt_dlp
 
-    with yt_dlp.YoutubeDL({**_base_opts(cookies), "skip_download": True}) as ydl:
-        info = ydl.extract_info(url, download=False)
+    info = _extract(url, {**_base_opts(cookies), "skip_download": True}, download=False)
     return {
         "title": info.get("title") or "Vidéo",
         "duration": info.get("duration") or 0,
@@ -118,8 +160,7 @@ def download(
         opts["download_ranges"] = download_range_func(None, [(s, e)])
         opts["force_keyframes_at_cuts"] = True
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+    info = _extract(url, opts, download=True)
 
     path = None
     for cand in sorted(out_dir.glob("source.*")):
@@ -205,8 +246,7 @@ def fetch_timestamp_comments(url: str, cookies: str | None, offset: float = 0.0,
         "extractor_args": {"youtube": {"max_comments": [str(max_comments), str(max_comments), "0", "0"],
                                        "comment_sort": ["top"]}},
     }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    info = _extract(url, opts, download=False)
     out = []
     for c in info.get("comments") or []:
         text = c.get("text") or ""
