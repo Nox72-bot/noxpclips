@@ -105,7 +105,7 @@ Pour des titres et un classement plus malins, dans **Réglages** :
 
 En mode *Auto*, NOXPclips prend la première disponible. Ces IA servent aussi à **traduire les sous-titres**.
 
-**Si tu n'as qu'un iPad** (hébergement Hugging Face), Ollama n'est pas disponible : ajoute une **clé Gemini
+**Si tu n'as qu'un iPad** (hébergement Codespaces), Ollama n'est pas disponible : ajoute une **clé Gemini
 gratuite** dans Réglages. Elle améliore les titres et traduit les sous-titres en français sans limite
 pratique. Sans clé, la traduction passe par le service gratuit MyMemory (~5 000 caractères par jour,
 soit une dizaine de clips).
