@@ -145,7 +145,7 @@ def process_project(pid: str) -> None:
             p["source_url"], d,
             start=opts.get("range_start"), end=opts.get("range_end"),
             cookies=settings.get("ytdlp_cookies") or None,
-            progress=_stage_cb(pid, "downloading"),
+            progress=_stage_cb(pid, "downloading"), tag=pid,
         )
         src = res["path"]
         meta.update({k: v for k, v in res["info"].items() if v})
@@ -304,6 +304,8 @@ def process_project(pid: str) -> None:
         clips.append(rec)
     (d / "clips").mkdir(exist_ok=True)
     for i, rec in enumerate(clips):
+        if not db.get("projects", pid):  # projet supprimé pendant le montage
+            return
         a, b = STAGES["rendering"]
         base = a + (b - a) * i / max(1, len(clips))
         step = (b - a) / max(1, len(clips))
@@ -380,7 +382,7 @@ def _render(clip: dict, project: dict, opts: dict, settings: dict, segments: lis
         start=clip["start"], end=clip["end"], words_abs=words, opts=o, brand=settings["brand"],
         layout=layout, media=media, loud=loud, hook_text=clip.get("hook") or "",
         translate_fn=translate_fn, encoder=_encoder(settings.get("video_encoder") or "libx264"),
-        preset=settings.get("render_preset") or "veryfast", progress=cb,
+        preset=settings.get("render_preset") or "veryfast", progress=cb, tag=pid,
     )
     tmp.replace(out)
     thumb_src = tmp.with_suffix(".jpg")
@@ -457,6 +459,7 @@ def free_space() -> dict:
 
 
 def delete_project(pid: str) -> None:
+    ff.kill(pid)  # arrête le téléchargement / montage en cours de ce projet
     db.query("DELETE FROM posts WHERE clip_id IN (SELECT id FROM clips WHERE project_id=?)", (pid,))
     db.query("DELETE FROM clips WHERE project_id=?", (pid,))
     db.delete("projects", pid)
