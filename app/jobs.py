@@ -91,6 +91,9 @@ def _loop() -> None:
         except Exception as e:  # noqa: BLE001
             log.error("Échec %s %s: %s", kind, id_, traceback.format_exc())
             if kind == "project":
+                p = db.get("projects", id_) or {}
+                if p.get("status") in ("downloading", "queued"):
+                    cleanup_partial(id_)
                 db.update("projects", id_, status="error", error=str(e)[:2000], message="Erreur")
             else:
                 db.update("clips", id_, status="error", error=str(e)[:2000])
@@ -410,6 +413,9 @@ def rerender_clip(cid: str) -> None:
     if not p:
         return
     d = pdir(p["id"])
+    if not (d / "source.mp4").exists():
+        raise RuntimeError("La vidéo source a été supprimée pour libérer de la place : "
+                           "relance un nouveau projet pour remonter ce clip.")
     opts = project_options(p)
     settings = db.get_settings()
     tr = json.loads((d / "transcript.json").read_text())
@@ -421,6 +427,33 @@ def rerender_clip(cid: str) -> None:
     def cb(frac):
         pass
     _render(clip, p, opts, settings, tr.get("segments", []), loud, media, layout, cb)
+
+
+def cleanup_partial(pid: str) -> None:
+    """Supprime un téléchargement interrompu (fichiers .part, flux séparés, source incomplète)."""
+    d = pdir(pid)
+    for f in d.glob("*"):
+        if f.is_file() and (f.name.startswith("source") or f.suffix in (".part", ".ytdl", ".temp")
+                            or ".part" in f.name or ".f" in f.stem):
+            f.unlink(missing_ok=True)
+
+
+def free_space() -> dict:
+    """Libère de la place : vidéos sources et fichiers de travail des projets terminés."""
+    freed = 0
+    for p in db.query("SELECT id, status FROM projects"):
+        d = pdir(p["id"])
+        if p["status"] == "done":
+            for f in [*d.glob("source.*"), *d.rglob("work/*/*")]:
+                if f.is_file():
+                    freed += f.stat().st_size
+                    f.unlink(missing_ok=True)
+        elif p["status"] == "error":
+            for f in d.rglob("*"):
+                if f.is_file() and f.suffix not in (".jpg", ".json"):
+                    freed += f.stat().st_size
+                    f.unlink(missing_ok=True)
+    return {"freed_gb": round(freed / 1e9, 2)}
 
 
 def delete_project(pid: str) -> None:

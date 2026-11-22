@@ -104,6 +104,11 @@ def system(request: Request):
     }
 
 
+@app.post("/api/storage/cleanup")
+def storage_cleanup():
+    return jobs.free_space()
+
+
 @app.get("/api/styles")
 def styles():
     return {
