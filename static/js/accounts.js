@@ -47,7 +47,7 @@ export async function renderAccounts(view, _p, query) {
 
   view.innerHTML = `<div class="page-head"><div><h1>Comptes sociaux</h1>
     <p class="muted" style="margin:0">Connecte tes réseaux pour publier et programmer automatiquement. 100 % gratuit via les API officielles.</p></div></div>
-    ${!https ? `<div class="card flat small" style="border-color:#ffb02066;margin-bottom:16px;color:var(--warn)">${icon("info", "sm")} TikTok et Instagram exigent une adresse <b>https://</b> pour la connexion. Ton serveur est sur <code>${esc(sys.base_url)}</code> : utilise l'hébergement en ligne (Hugging Face) ou Tailscale (voir le guide d'installation). YouTube accepte <code>http://localhost</code>.</div>` : ""}
+    ${!https ? `<div class="card flat small" style="border-color:#ffb02066;margin-bottom:16px;color:var(--warn)">${icon("info", "sm")} TikTok et Instagram exigent une adresse <b>https://</b> pour la connexion. Ton serveur est sur <code>${esc(sys.base_url)}</code> : utilise GitHub Codespaces ou Tailscale (voir le guide d'installation). YouTube accepte <code>http://localhost</code>.</div>` : ""}
     <div class="accounts-grid">${Object.entries(CONF).map(([p, c]) => {
       const mine = accounts.filter((a) => a.platform === p);
       const configured = c.fields.every(([k]) => settings[k]);

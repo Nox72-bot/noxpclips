@@ -44,24 +44,31 @@ correction du contact visuel.
 
 ---
 
-## Option A : en ligne et gratuit, depuis ton iPad (Hugging Face Spaces)
+## Option A : en ligne et gratuit, depuis ton iPad (GitHub Codespaces)
 
-Tout se fait depuis Safari, sans ordinateur.
+Un petit ordinateur dans le cloud fourni par GitHub, piloté depuis Safari. Gratuit : **60 heures par mois**
+(2 processeurs, 8 Go de mémoire), sans carte bancaire. Tes clips et réglages sont conservés.
 
-1. Crée un compte gratuit sur [huggingface.co](https://huggingface.co).
-2. **New → Space** : nom `noxpclips`, SDK **Docker**, matériel **CPU basic (gratuit)**. Tu peux le laisser *Public* : NOXPclips sera protégé par un mot de passe.
-3. Dans le Space : **Settings → Variables and secrets → New secret** : `NOXP_PASSWORD` = un mot de passe de ton choix.
-4. Sur Hugging Face : **Settings → Access Tokens → Create new token**, type *Write*. Copie-le.
-5. Sur GitHub, dans ce dépôt : **Settings → Secrets and variables → Actions** :
-   - onglet *Secrets* → `HF_TOKEN` = le jeton copié ;
-   - onglet *Variables* → `HF_SPACE` = `ton-pseudo-hf/noxpclips`.
-6. Onglet **Actions** → *Déployer sur Hugging Face* → **Run workflow**. Le Space se construit (~10 min la première fois).
-7. Ouvre `https://ton-pseudo-hf-noxpclips.hf.space` dans Safari → bouton **Partager → Sur l'écran d'accueil**. NOXPclips s'installe comme une appli sur ton iPad et ton iPhone.
+1. Sur la page du dépôt GitHub : bouton vert **Code** → onglet **Codespaces** → **Create codespace on main**.
+2. La première fois, l'installation dure 5 à 8 minutes (ffmpeg, Whisper…). Laisse l'onglet ouvert.
+3. Quand c'est prêt, ouvre l'onglet **Ports** en bas, ligne **NOXPclips (8000)** → icône globe 🌐.
+   NOXPclips s'ouvre dans un nouvel onglet : **Partager → Sur l'écran d'accueil** pour l'installer.
+4. Une seule fois : sur [github.com/settings/codespaces](https://github.com/settings/codespaces), règle
+   **Default idle timeout** sur **240 minutes** (sinon le Codespace s'arrête après 30 min sans activité).
 
-Limites du palier gratuit Hugging Face, pour être transparent :
-- **2 processeurs** : compte environ 5 à 15 min pour une vidéo de 10 min (selon les options).
-- Le Space **s'endort après 48 h sans visite**, et ses fichiers sont **effacés à chaque redémarrage** : télécharge ou publie tes clips rapidement, et reconnecte tes réseaux si besoin. Les vidéos programmées sur **YouTube** sont envoyées tout de suite avec une date de publication, donc elles sortent même si le Space dort. Pour TikTok et Instagram, le serveur doit être allumé à l'heure prévue.
-- YouTube bloque souvent le téléchargement depuis les serveurs cloud (« confirm you're not a bot »). Solution : importer un fichier `cookies.txt` dans **Réglages → Téléchargement**, ou utiliser **Importer un fichier**. Twitch fonctionne généralement sans souci.
+Les fois suivantes : va sur [github.com/codespaces](https://github.com/codespaces) et rouvre ton Codespace ;
+NOXPclips redémarre tout seul, à la même adresse.
+
+À savoir :
+- Le port est **privé** : seul ton compte GitHub peut ouvrir NOXPclips. Pas besoin de mot de passe.
+- Quand le Codespace est arrêté, rien ne tourne. Les vidéos programmées sur **YouTube** partent quand même
+  (envoyées à l'avance avec une date de publication) ; pour TikTok et Instagram, rouvre le Codespace à l'heure prévue.
+- Pense à arrêter le Codespace quand tu as fini (il s'arrête aussi tout seul) pour économiser tes 60 h.
+- YouTube bloque parfois les téléchargements depuis les serveurs cloud : ajoute un `cookies.txt`
+  (Réglages → Téléchargement) ou utilise **Importer un fichier**. Twitch fonctionne généralement.
+
+Le `Dockerfile` permet aussi d'héberger NOXPclips sur n'importe quel serveur (Oracle Cloud Always Free,
+VPS…). Hugging Face Spaces le permet aussi, mais les Spaces Docker y sont devenus payants.
 
 ## Option B : sur ton Mac (plus rapide, rien n'est effacé)
 
