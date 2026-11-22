@@ -73,8 +73,84 @@ def _even(x: float) -> int:
     return max(2, int(round(x / 2)) * 2)
 
 
-def layout_filter(mode: str, sw: int, sh: int, cx: float, cam: list[float] | None) -> str:
+# Zones sûres TikTok / Reels / Shorts : l'interface cache ~150 px en haut et ~380 px en bas
+SAFE_TOP, SAFE_BOTTOM = 150, 380
+PANEL_H = 608  # hauteur d'un panneau 16:9 en pleine largeur (1080 x 608)
+
+
+def full_geometry(sw: int, sh: int, has_cam: bool) -> dict:
+    """Positions (px) de la facecam, du gameplay entier, de l'accroche et des sous-titres."""
+    gh = min(_even(W * sh / sw), 1100)  # gameplay en pleine largeur, sans rien couper
+    if has_cam:
+        cam_y = SAFE_TOP + 10
+        game_y = cam_y + PANEL_H + 16
+        hook_y = (cam_y + PANEL_H + 8) / H  # à la jonction facecam / jeu
+    else:
+        game_y = max(SAFE_TOP + 260, (H - gh) // 2 - 60)
+        cam_y = 0
+        hook_y = (game_y - 150) / H  # au-dessus du jeu
+    cap_y = min(game_y + gh + 110, H - SAFE_BOTTOM - 60) / H  # sous le jeu, hors zone cachée
+    return {"gh": gh, "game_y": game_y, "cam_y": cam_y, "hook_y": hook_y, "cap_y": cap_y}
+
+
+def zoom_expr(peaks: list[float], amp: float, intro: float = 0.0, width: float = 0.9) -> str:
+    """Facteur de zoom (zoompan) : zoom avant puis arrière en douceur autour de chaque pic."""
+    t = f"(in/{FPS})"
+    bumps = [f"if(lt(abs({t}-{p:.2f}),{width}),0.5+0.5*cos(PI*({t}-{p:.2f})/{width}),0)" for p in peaks]
+    expr = "0"
+    for b in bumps:
+        expr = f"max({expr},{b})"
+    z = f"1+{amp}*{expr}"
+    if intro:  # « punch » d'entrée : on part zoomé et on dézoome en 0,7 s (accroche visuelle)
+        z = f"max({z},1+{intro}*max(0,1-{t}/0.7))"
+    return z
+
+
+def _zoompan(z: str, w: int, h: int) -> str:
+    return f"zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={w}x{h}:fps={FPS}"
+
+
+def cam_crop(cam: list[float], sw: int, sh: int, aspect: float) -> tuple[int, int, int, int]:
+    """Zone de la source autour de la facecam, au format demandé (largeur / hauteur)."""
+    bx, by, bw, bh = cam
+    cw, ch = bw * sw, bh * sh
+    if cw / max(ch, 1) > aspect:
+        ch = cw / aspect
+    else:
+        cw = ch * aspect
+    cw, ch = min(cw, sw), min(ch, sh)
+    ccx, ccy = (bx + bw / 2) * sw, (by + bh / 2) * sh
+    x0 = min(max(0, ccx - cw / 2), sw - cw)
+    y0 = min(max(0, ccy - ch / 2), sh - ch)
+    return _even(cw), _even(ch), int(x0), int(y0)
+
+
+def layout_filter(mode: str, sw: int, sh: int, cx: float, cam: list[float] | None,
+                  game_zoom: str = "", cam_zoom: str = "") -> str:
     """Retourne une chaîne de filtres [vin] -> [vlay] (1080x1920)."""
+    if mode == "full":
+        g = full_geometry(sw, sh, bool(cam))
+        gz = f",{_zoompan(game_zoom, W, g['gh'])}" if game_zoom else ""
+        parts = [
+            f"[vin]split={3 if cam else 2}[b1][g1]{'[c1]' if cam else ''}",
+            f"[b1]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=14:3,"
+            f"scale={W}:{H},eq=brightness=-0.16:saturation=1.35[bg]",
+            f"[g1]scale={W}:{g['gh']}:force_original_aspect_ratio=increase,crop={W}:{g['gh']},setsar=1{gz}[game]",
+        ]
+        if cam:
+            # uniquement la webcam (pas de morceau de jeu à côté), centrée sur le fond flou
+            bx, by, bw, bh = cam
+            box_aspect = (bw * sw) / max(1.0, bh * sh)
+            aspect = min(W / PANEL_H, max(0.9, box_aspect))
+            cw, ch, x0, y0 = cam_crop(cam, sw, sh, aspect)
+            pw = min(W, _even(PANEL_H * aspect))
+            cz = f",{_zoompan(cam_zoom, pw, PANEL_H)}" if cam_zoom else ""
+            parts.append(f"[c1]crop={cw}:{ch}:{x0}:{y0},scale={pw}:{PANEL_H},setsar=1{cz}[cam]")
+            parts.append(f"[bg][cam]overlay=(W-w)/2:{g['cam_y']}[t1]")
+            parts.append(f"[t1][game]overlay=0:{g['game_y']}[vlay]")
+        else:
+            parts.append(f"[bg][game]overlay=0:{g['game_y']}[vlay]")
+        return ";".join(parts)
     if mode == "split" and cam:
         bx, by, bw, bh = cam
         cw, ch = bw * sw, bh * sh
@@ -188,7 +264,15 @@ def render_clip(
         from .faces import CORNERS
 
         cam = CORNERS.get(opts.get("cam_corner") or "top-left")
-    fc.append(layout_filter(mode, media["width"], media["height"], float(opts.get("crop_cx", layout.get("cx", 0.5))), cam))
+    if mode == "full" and not opts.get("cam_box") and not layout.get("cam"):
+        cam = None  # pas de facecam connue : gameplay entier seul
+    game_zoom = cam_zoom = ""
+    if mode == "full" and opts.get("auto_zoom"):
+        peaks = zoom_peaks(loud, start, end, remap, max_peaks=6)
+        game_zoom = zoom_expr(peaks, 0.28, intro=0.22)          # punch sur l'action du jeu
+        cam_zoom = zoom_expr(peaks, 0.16, width=1.2) if cam else ""  # réaction du streamer
+    fc.append(layout_filter(mode, media["width"], media["height"], float(opts.get("crop_cx", layout.get("cx", 0.5))),
+                            cam, game_zoom, cam_zoom))
     cur = "vlay"
 
     def chain(f: str):
@@ -200,14 +284,9 @@ def render_clip(
     if opts.get("color_correct"):
         chain("eq=contrast=1.07:saturation=1.20:brightness=0.015:gamma=0.98,unsharp=5:5:0.45")
 
-    if opts.get("auto_zoom"):
+    if opts.get("auto_zoom") and mode != "full":
         peaks = zoom_peaks(loud, start, end, remap)
-        if peaks:
-            bumps = [f"max(0,1-abs(in/{FPS}-{p:.2f})/0.9)" for p in peaks]
-            expr = bumps[0]
-            for b in bumps[1:]:
-                expr = f"max({expr},{b})"
-            chain(f"zoompan=z='1+0.13*{expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS}")
+        chain(_zoompan(zoom_expr(peaks, 0.13, intro=0.12), W, H))
 
     # position des sous-titres / accroche selon la mise en page
     cap_y = None
@@ -215,6 +294,9 @@ def render_clip(
     if mode == "split":
         cap_y = 0.62
         hook_y = 0.40
+    elif mode == "full":
+        geo = full_geometry(media["width"], media["height"], bool(cam))
+        cap_y, hook_y = geo["cap_y"], geo["hook_y"]
     pos = opts.get("caption_position") or brand.get("caption_position") or "middle"
 
     groups: list[list[dict]] = []
@@ -294,6 +376,20 @@ def render_clip(
         x, y = posmap.get(brand.get("logo_position", "top-right"), posmap["top-right"])
         nxt = f"v{len(fc)}"
         fc.append(f"[{cur}][{n_in}:v]overlay={x}:{y}[{nxt}]")
+        cur = nxt
+        n_in += 1
+
+    # Barre de progression : pousse à regarder jusqu'au bout (taux de complétion)
+    if opts.get("progress_bar"):
+        if mode == "full":
+            geo = full_geometry(media["width"], media["height"], bool(cam))
+            bar_y = geo["game_y"] + geo["gh"] - 9
+        else:
+            bar_y = H - SAFE_BOTTOM - 12
+        color = (brand.get("highlight_color") or "#B8FF3C").lstrip("#")
+        inputs += ["-f", "lavfi", "-i", f"color=c=0x{color}:s={W}x9:r={FPS}:d={out_dur:.2f}"]
+        nxt = f"v{len(fc)}"
+        fc.append(f"[{cur}][{n_in}:v]overlay=x='-w+w*t/{max(out_dur, 0.1):.2f}':y={bar_y}:eof_action=pass[{nxt}]")
         cur = nxt
         n_in += 1
 

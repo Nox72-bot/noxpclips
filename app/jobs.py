@@ -53,6 +53,7 @@ DEFAULT_OPTIONS = {
     "captions_fr": True,  # sous-titres toujours en français (traduits si la vidéo est dans une autre langue)
     "brand_logo": True,
     "split": True,  # False = pas de découpage : un seul clip sur toute la plage
+    "progress_bar": True,  # barre de progression (incite à regarder jusqu'au bout)
 }
 
 
@@ -216,7 +217,10 @@ def process_project(pid: str) -> None:
                                heatmap=heatmap, comments=comments)
     max_clips = max(1, min(30, int(opts.get("max_clips") or 10)))
     if opts.get("split", True):
-        cands = an.find_candidates(duration, segments, signals, length=opts.get("clip_length", "auto"),
+        length = opts.get("clip_length", "auto")
+        if length == "auto" and genre in ("gaming", "gta", "concept"):
+            length = "tiktok"
+        cands = an.find_candidates(duration, segments, signals, length=length,
                                    clip_types=opts.get("clip_types"), max_clips=max_clips)
     else:  # recette « sous-titres / recadrage » : toute la plage devient un seul clip (max 10 min)
         whole = an.find_candidates(duration, segments, signals, length="auto", max_clips=1)[:1]

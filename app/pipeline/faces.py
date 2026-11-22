@@ -67,7 +67,8 @@ def analyze_layout(src: Path, duration: float, width: int, height: int, genre: s
     found = detect_faces(src, times)
     frames_with = [f for f in found if f]
     if not found or len(frames_with) < max(3, int(0.35 * len(found))):
-        return {"mode": "fill" if genre in ("gaming", "gta") else "fit", "cx": 0.5}
+        # gaming sans facecam : on montre tout le gameplay (fond flou), rien n'est coupé
+        return {"mode": "full" if genre in ("gaming", "gta") else "fit", "cx": 0.5}
     # Plusieurs personnes bien écartées (vidéo concept entre potes, plateau) : on garde tout le monde
     wide_groups = sum(1 for f in frames_with
                       if len(f) >= 2 and max(b[0] + b[2] / 2 for b in f) - min(b[0] + b[2] / 2 for b in f) > 0.35)
@@ -91,16 +92,18 @@ def analyze_layout(src: Path, duration: float, width: int, height: int, genre: s
         off_center = False
     if off_center:
         # facecam : la webcam fait ~3,2x la largeur du visage
-        bw = min(0.45, fw * 3.2)
+        bw = min(0.45, fw * 2.9)
         bh = min(0.5, bw * width / height * 0.75)
         bx = min(max(0.0, cx - bw / 2), 1 - bw)
         by = min(max(0.0, cy - bh / 2), 1 - bh)
-        return {"mode": "split", "cam": [round(bx, 4), round(by, 4), round(bw, 4), round(bh, 4)], "cx": 0.5}
+        box = [round(bx, 4), round(by, 4), round(bw, 4), round(bh, 4)]
+        # gaming : facecam en haut + gameplay entier ; autres vidéos : facecam + image recadrée
+        return {"mode": "full" if genre in ("gaming", "gta") else "split", "cam": box, "cx": 0.5}
     # sinon : visage principal suivi (vlog, podcast…)
     main = [max(f, key=lambda b: b[2] * b[3]) for f in frames_with]
     cx = float(np.median([b[0] + b[2] / 2 for b in main]))
     if genre in ("gaming", "gta") and float(np.median([b[2] for b in main])) < 0.12:
-        return {"mode": "fill", "cx": 0.5}  # petits visages instables = personnages du jeu
+        return {"mode": "full", "cx": 0.5}  # petits visages instables = personnages du jeu
     return {"mode": "fill", "cx": cx}
 
 

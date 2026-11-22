@@ -16,7 +16,8 @@ export const LENGTHS = [["auto", "Auto (<90s)"], ["lt30", "<30s"], ["30_59", "30
 export const LANGS = [["auto", "Détection auto"], ["fr", "Français"], ["en", "Anglais"], ["es", "Espagnol"],
   ["de", "Allemand"], ["it", "Italien"], ["pt", "Portugais"], ["ar", "Arabe"], ["nl", "Néerlandais"], ["ja", "Japonais"]];
 export const TRANSLATE = ["anglais", "français", "espagnol", "allemand", "italien", "portugais", "arabe"];
-export const LAYOUTS = [["", "Auto (IA)"], ["fill", "9:16 Remplir"], ["fit", "9:16 Fond flou"], ["split", "9:16 Facecam + jeu"]];
+export const LAYOUTS = [["", "Auto (IA)"], ["full", "9:16 Gameplay entier + facecam"], ["split", "9:16 Facecam + jeu recadré"],
+  ["fill", "9:16 Plein écran (recadré)"], ["fit", "9:16 Vidéo entière + fond flou"]];
 export const CORNERS = [["top-left", "Facecam en haut à gauche"], ["top-right", "Facecam en haut à droite"],
   ["bottom-left", "Facecam en bas à gauche"], ["bottom-right", "Facecam en bas à droite"]];
 
@@ -66,7 +67,7 @@ export async function renderNew(view) {
     max_clips: 10, ai_engine: "", layout_mode: "", cam_corner: "top-left", captions: true,
     caption_style: settings.brand.caption_style || "neon", caption_position: settings.brand.caption_position || "middle",
     hook: true, hook_style: "punchy", hook_duration: 4, ai_emojis: false, voice_cleanup: "off", enhance_audio: false,
-    auto_zoom: false, transitions: false, color_correct: false, translate_to: "", brand_logo: true, split: true, captions_fr: true,
+    auto_zoom: false, transitions: false, color_correct: false, translate_to: "", brand_logo: true, split: true, captions_fr: true, progress_bar: true,
     ...draft.options,
   };
   const dur = Math.round(src.duration || 0);
@@ -155,6 +156,7 @@ export async function renderNew(view) {
         ${row("auto_zoom", "zoom", "Zoom automatique", toggle("auto_zoom", o.auto_zoom), { on: o.auto_zoom })}
         ${row("transitions", "transition", "Transitions automatiques", toggle("transitions", o.transitions), { on: o.transitions })}
         ${row("color_correct", "color", "Correction automatique des couleurs", toggle("color_correct", o.color_correct), { on: o.color_correct })}
+        ${row("progress_bar", "clock", "Barre de progression", toggle("progress_bar", o.progress_bar), { on: o.progress_bar, badge: ' <span class="pill free">TikTok</span>' })}
         ${row("brand_logo", "brush", "Logo du kit de marque", toggle("brand_logo", o.brand_logo && !!settings.brand.logo, settings.brand.logo ? "" : "disabled"), { on: o.brand_logo && !!settings.brand.logo })}
         ${row("eye", "eye", "Correction du contact visuel", toggle("eye", false, "disabled"), { soon: true })}
 
@@ -197,7 +199,7 @@ export async function renderNew(view) {
   bindToggle("split", "split", "splitbox");
   bindToggle("captions", "captions", "capbox");
   bindToggle("hook", "hook", "hookbox");
-  ["ai_emojis", "enhance_audio", "auto_zoom", "transitions", "color_correct", "brand_logo", "captions_fr"].forEach((k) => bindToggle(k, k));
+  ["ai_emojis", "enhance_audio", "auto_zoom", "transitions", "color_correct", "brand_logo", "captions_fr", "progress_bar"].forEach((k) => bindToggle(k, k));
   bindToggle("voice_cleanup");
   bindToggle("translate");
   $("#caption_position").value = o.caption_position;

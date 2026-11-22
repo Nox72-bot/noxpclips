@@ -23,6 +23,7 @@ CATEGORY_LABELS = {
 
 LENGTH_PRESETS = {
     "auto": (15, 90, 40),
+    "tiktok": (12, 60, 30),  # gaming / concept : clips courts, regardés jusqu'au bout
     "lt30": (8, 30, 22),
     "30_59": (30, 59, 45),
     "60_89": (60, 89, 72),
@@ -359,8 +360,9 @@ def find_candidates(duration: float, segments: list[dict], signals: dict, *,
     for idx, f in enumerate(feats):
         r = {k: float(ranks[k][idx]) for k in keys}
         cat_scores = {c: r[c] * 0.75 + r["energy"] * 0.25 for c in CATEGORIES}
-        viral = (0.28 * max(cat_scores.values()) + 0.22 * r["energy"] + 0.18 * r["hook"]
-                 + 0.12 * r["payoff"] + 0.10 * f["fit"] + 0.10 * r["speech"])
+        # Inspiré de TikTok : accroche des 3 premières secondes et chute forte = visionnage complet
+        viral = (0.26 * max(cat_scores.values()) + 0.20 * r["energy"] + 0.24 * r["hook"]
+                 + 0.14 * r["payoff"] + 0.10 * f["fit"] + 0.06 * r["speech"])
         if has_audience:  # données réelles des spectateurs : signal le plus fiable
             viral = viral * 0.65 + 0.35 * r["audience"]
         if has_prompt:

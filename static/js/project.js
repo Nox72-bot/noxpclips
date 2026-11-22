@@ -93,7 +93,7 @@ export async function renderProject(view, { id }) {
         ${(meta.audience_signals || {}).heatmap ? `<span>📈 « Moments les plus revus » YouTube</span>` : ""}
         ${(meta.audience_signals || {}).comments ? `<span>💬 ${meta.audience_signals.comments} commentaires horodatés</span>` : ""}
         ${meta.language ? `<span>🗣️ Vidéo en ${esc(LANG_NAMES[meta.language] || meta.language)} · textes en ${meta.text_language === "en" ? "anglais" : "français"}${meta.language !== "fr" && p.options.captions_fr !== false ? " · sous-titres traduits en français" : ""}</span>` : ""}
-        <span>📐 ${esc({ split: "Facecam + jeu", fill: "Recadrage 9:16", fit: "Fond flou" }[(p.options.layout_mode || (meta.layout || {}).mode)] || "Auto")}</span>
+        <span>📐 ${esc({ full: "Gameplay entier", split: "Facecam + jeu recadré", fill: "Recadrage 9:16", fit: "Fond flou" }[(p.options.layout_mode || (meta.layout || {}).mode)] || "Auto")}</span>
       </div>
       ${meta.warning ? `<div class="card flat small" style="border-color:#ffb02055;color:var(--warn);margin-bottom:14px">${esc(meta.warning)}</div>` : ""}
       <div class="filters">${FILTERS.map(([k, l]) => `<button class="chip sm ${k === filter ? "on" : ""}" data-f="${k}">${l} <span class="faint">${k === "all" ? p.clips.length : p.clips.filter((c) => (k === "top" ? c.score >= 80 : c.category === k)).length}</span></button>`).join("")}</div>
@@ -147,7 +147,7 @@ function editClip(c, project, reload) {
           <label class="field">Facecam<select class="input" id="cam_corner">${CORNERS.map(([v, l]) => `<option value="${v}" ${o.cam_corner === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         </div>
         <div class="row wrap" style="gap:14px">
-          ${[["captions", "Sous-titres"], ["hook", "Accroche"], ["ai_emojis", "Emojis"], ["auto_zoom", "Zoom auto"], ["transitions", "Transitions"], ["color_correct", "Couleurs"], ["enhance_audio", "Audio+"]]
+          ${[["captions", "Sous-titres"], ["hook", "Accroche"], ["ai_emojis", "Emojis"], ["auto_zoom", "Zoom auto"], ["progress_bar", "Barre de progression"], ["transitions", "Transitions"], ["color_correct", "Couleurs"], ["enhance_audio", "Audio+"]]
             .map(([k, l]) => `<label class="row small" style="gap:8px">${toggle("o_" + k, !!o[k])} ${l}</label>`).join("")}
         </div>
       </div>
@@ -178,7 +178,7 @@ function editClip(c, project, reload) {
   $("#rerender", m.el).onclick = async () => {
     const options = { caption_style: $("#caption_style", m.el).value, hook_style: $("#hook_style", m.el).value,
       layout_mode: $("#layout_mode", m.el).value, cam_corner: $("#cam_corner", m.el).value };
-    ["captions", "hook", "ai_emojis", "auto_zoom", "transitions", "color_correct", "enhance_audio"].forEach((k) => (options[k] = $("#o_" + k, m.el).checked));
+    ["captions", "hook", "ai_emojis", "auto_zoom", "progress_bar", "transitions", "color_correct", "enhance_audio"].forEach((k) => (options[k] = $("#o_" + k, m.el).checked));
     try {
       await api(`/api/clips/${c.id}/rerender`, { method: "POST", body: { ...texts(), start: parseClock($("#start", m.el).value), end: parseClock($("#end", m.el).value), options } });
       toast("Nouveau montage lancé…", "ok");
@@ -196,7 +196,7 @@ function facecamModal(p, reload) {
   let box = p.options.cam_box || ((meta.layout || {}).mode === "split" ? meta.layout.cam : null);
   const m = modal(`
     <div class="modal-head"><h2>${icon("eye")} Facecam du streamer</h2><button class="icon-btn" data-close>${icon("x")}</button></div>
-    <p class="muted" style="margin-top:0">Dessine au doigt un rectangle autour de la webcam. Les clips seront refaits en <b>écran partagé</b> : streamer en haut, jeu en bas.</p>
+    <p class="muted" style="margin-top:0">Dessine au doigt un rectangle autour de la webcam. Les clips seront refaits avec <b>le streamer en haut et tout le gameplay en dessous</b>, avec zooms dynamiques.</p>
     <div id="fcwrap" style="position:relative;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:${media.width || 16}/${media.height || 9}">
       <img id="fcimg" alt="" style="width:100%;height:100%;object-fit:contain;pointer-events:none" draggable="false">
       <div id="fcbox" style="position:absolute;border:3px solid var(--accent);box-shadow:0 0 0 9999px #0008;border-radius:6px;display:none;pointer-events:none"></div>
@@ -208,7 +208,8 @@ function facecamModal(p, reload) {
     <div class="modal-foot">
       <button class="btn" id="fcnone">Pas de facecam (recadrage du jeu)</button>
       <button class="btn" id="fcblur">Vidéo entière + fond flou</button>
-      <button class="btn primary" id="fcok" ${box ? "" : "disabled"}>${icon("check", "sm")} Appliquer à tous les clips</button>
+      <button class="btn" id="fcsplit" ${box ? "" : "disabled"}>Facecam + jeu recadré</button>
+      <button class="btn primary" id="fcok" ${box ? "" : "disabled"}>${icon("check", "sm")} Gameplay entier + facecam</button>
     </div>`, { wide: true });
   const wrap = $("#fcwrap", m.el), img = $("#fcimg", m.el), rect = $("#fcbox", m.el);
   const show = () => {
@@ -237,7 +238,8 @@ function facecamModal(p, reload) {
     if (box && (box[2] < 0.03 || box[3] < 0.03)) box = null;  // simple tape : on ignore
     show();
     $("#fcok", m.el).disabled = !box;
-    $("#fchint", m.el).textContent = box ? "Parfait ! Appuie sur « Appliquer à tous les clips »." : "Rectangle trop petit : fais glisser ton doigt pour l'agrandir.";
+    $("#fcsplit", m.el).disabled = !box;
+    $("#fchint", m.el).textContent = box ? "Parfait ! Appuie sur « Gameplay entier + facecam »." : "Rectangle trop petit : fais glisser ton doigt pour l'agrandir.";
   });
   const apply = async (options, label) => {
     try {
@@ -246,7 +248,9 @@ function facecamModal(p, reload) {
       m.close(); reload();
     } catch (e) { toast(e.message, "err"); }
   };
-  $("#fcok", m.el).onclick = () => apply({ layout_mode: "split", cam_box: box.map((v) => Math.round(v * 10000) / 10000) }, "Facecam appliquée");
+  const roundBox = () => box.map((v) => Math.round(v * 10000) / 10000);
+  $("#fcok", m.el).onclick = () => apply({ layout_mode: "full", cam_box: roundBox(), auto_zoom: true, progress_bar: true }, "Gameplay entier + facecam");
+  $("#fcsplit", m.el).onclick = () => apply({ layout_mode: "split", cam_box: roundBox() }, "Facecam + jeu recadré");
   $("#fcnone", m.el).onclick = () => apply({ layout_mode: "fill", cam_box: null }, "Recadrage du jeu");
   $("#fcblur", m.el).onclick = () => apply({ layout_mode: "fit", cam_box: null }, "Fond flou");
 }
