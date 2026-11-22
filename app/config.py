@@ -27,7 +27,7 @@ DEFAULT_SETTINGS: dict = {
     "ollama_url": os.environ.get("OLLAMA_URL", "http://localhost:11434"),
     "ollama_model": "qwen2.5:7b",
     "gemini_api_key": os.environ.get("GEMINI_API_KEY", ""),
-    "gemini_model": "gemini-2.5-flash",
+    "gemini_model": "gemini-flash-latest",
     "groq_api_key": os.environ.get("GROQ_API_KEY", ""),
     "groq_model": "llama-3.3-70b-versatile",
     # Transcription

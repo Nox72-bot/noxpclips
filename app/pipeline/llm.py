@@ -62,32 +62,102 @@ def chat(settings: dict, system: str, user: str, engine: str | None = None, time
         r.raise_for_status()
         return r.json()["message"]["content"]
     if engine == "gemini":
-        model = settings.get("gemini_model") or "gemini-2.5-flash"
-        r = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            params={"key": settings["gemini_api_key"]},
-            json={
-                "systemInstruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": [{"text": user}]}],
-                "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json"},
-            },
-            timeout=timeout,
-        )
-        r.raise_for_status()
+        # La clé part dans un en-tête : elle n'apparaît jamais dans une adresse ni dans un message d'erreur
+        headers = {"x-goog-api-key": settings["gemini_api_key"]}
+        body = {
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json"},
+        }
+
+        def call(model: str) -> httpx.Response:
+            return httpx.post(f"{GEMINI_BASE}/models/{model}:generateContent",
+                              headers=headers, json=body, timeout=timeout)
+
+        r = call(settings.get("gemini_model") or GEMINI_DEFAULT)
+        if r.status_code in (400, 404):  # modèle retiré ou renommé par Google : on prend le bon tout seul
+            model = _discover_gemini_model(headers)
+            if model:
+                _remember(settings, "gemini_model", model)
+                r = call(model)
+        _check(r, "Gemini")
         parts = r.json()["candidates"][0]["content"]["parts"]
         return "".join(p.get("text", "") for p in parts)
     if engine == "groq":
-        r = httpx.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {settings['groq_api_key']}"},
-            json={"model": settings.get("groq_model") or "llama-3.3-70b-versatile", "temperature": 0.4,
-                  "response_format": {"type": "json_object"},
-                  "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
-            timeout=timeout,
-        )
-        r.raise_for_status()
+        headers = {"Authorization": f"Bearer {settings['groq_api_key']}"}
+
+        def call_groq(model: str) -> httpx.Response:
+            return httpx.post(
+                "https://api.groq.com/openai/v1/chat/completions", headers=headers, timeout=timeout,
+                json={"model": model, "temperature": 0.4, "response_format": {"type": "json_object"},
+                      "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]})
+
+        r = call_groq(settings.get("groq_model") or GROQ_DEFAULT)
+        if r.status_code in (400, 404) and "model" in r.text.lower():
+            model = _discover_groq_model(headers)
+            if model:
+                _remember(settings, "groq_model", model)
+                r = call_groq(model)
+        _check(r, "Groq")
         return r.json()["choices"][0]["message"]["content"]
     raise NoLLM("Aucune IA disponible")
+
+
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_DEFAULT = "gemini-flash-latest"
+GROQ_DEFAULT = "llama-3.3-70b-versatile"
+
+
+def _check(r: httpx.Response, name: str) -> None:
+    """Erreur lisible, sans jamais recopier l'adresse appelée (pas de fuite de clé)."""
+    if r.status_code < 400:
+        return
+    try:
+        msg = (r.json().get("error") or {}).get("message") or r.text
+    except ValueError:
+        msg = r.text
+    raise RuntimeError(f"{name} a répondu {r.status_code} : {str(msg)[:200]}")
+
+
+def _remember(settings: dict, key: str, value: str) -> None:
+    settings[key] = value
+    try:
+        from .. import db
+
+        db.set_settings({key: value})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _discover_gemini_model(headers: dict) -> str | None:
+    """Choisit le meilleur modèle « flash » gratuit réellement disponible pour cette clé."""
+    try:
+        r = httpx.get(f"{GEMINI_BASE}/models", headers=headers, params={"pageSize": 200}, timeout=20)
+        r.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    names = [m["name"].split("/", 1)[-1] for m in r.json().get("models", [])
+             if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+    if "gemini-flash-latest" in names:
+        return "gemini-flash-latest"
+    bad = ("lite", "image", "tts", "audio", "live", "embedding", "exp", "preview", "thinking", "8b")
+    flash = [n for n in names if "flash" in n and not any(b in n for b in bad)]
+    flash = flash or [n for n in names if "flash" in n] or [n for n in names if n.startswith("gemini")]
+    return sorted(flash, reverse=True)[0] if flash else None
+
+
+def _discover_groq_model(headers: dict) -> str | None:
+    try:
+        r = httpx.get("https://api.groq.com/openai/v1/models", headers=headers, timeout=20)
+        r.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    ids = [m["id"] for m in r.json().get("data", []) if m.get("active", True)]
+    for pref in ("llama-3.3-70b", "llama-4", "qwen", "llama"):
+        cands = sorted([i for i in ids if pref in i and "guard" not in i and "whisper" not in i], reverse=True)
+        if cands:
+            return cands[0]
+    return None
 
 
 def parse_json(text: str):
