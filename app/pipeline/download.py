@@ -70,6 +70,7 @@ def _extract(url: str, opts: dict, download: bool):
         known = _good_client.get("youtube")
         tries = ([known] if known else []) + [None] + [c for c in FALLBACK_CLIENTS if c != known]
     last: Exception | None = None
+    errors: list[str] = []
     for client in tries:
         o = dict(opts)
         if client:
@@ -87,9 +88,12 @@ def _extract(url: str, opts: dict, download: bool):
             last = e
             if not (is_yt and _is_bot_block(e)):
                 raise
-            log.warning("YouTube refuse (lecteur %s) : %s", client or "défaut", str(e)[:160])
+            short = " ".join(str(e).replace("ERROR: ", "").split())[:160]
+            errors.append(f"[{client or 'défaut'}] {short}")
+            log.warning("YouTube refuse (lecteur %s) : %s", client or "défaut", short)
     assert last is not None
-    raise last
+    # message complet : toutes les tentatives, pour comprendre ce que YouTube bloque
+    raise RuntimeError(" | ".join(errors[:4]) + (" | …" if len(errors) > 4 else "")) from last
 
 
 def probe(url: str, cookies: str | None = None) -> dict:

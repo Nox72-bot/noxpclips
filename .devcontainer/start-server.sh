@@ -8,8 +8,13 @@ fi
 if ! command -v ffmpeg >/dev/null || ! python -c "import fastapi, faster_whisper" 2>/dev/null; then
   bash .devcontainer/setup.sh
 fi
+# Deno : moteur JavaScript dont yt-dlp a besoin pour YouTube
+export PATH="$HOME/.deno/bin:$HOME/.local/bin:$PATH"
+if ! command -v deno >/dev/null; then
+  curl -fsSL https://deno.land/install.sh | sh -s -- -y > /dev/null 2>&1 || echo "⚠️ Deno non installé"
+fi
 # yt-dlp suit les changements de YouTube : on prend toujours la dernière version
-pip install --user -q -U yt-dlp 2>/dev/null || true
+pip install --user -q -U "yt-dlp[default]" 2>/dev/null || true
 pkill -f "uvicorn app.main:app" 2>/dev/null || true
 setsid nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 \
   --proxy-headers --forwarded-allow-ips='*' > /tmp/noxpclips.log 2>&1 < /dev/null &
