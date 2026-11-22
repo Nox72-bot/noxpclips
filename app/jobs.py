@@ -183,7 +183,7 @@ def process_project(pid: str) -> None:
             ff.extract_audio(src, wav)
             lpath.write_text(json.dumps(ff.loudness_curve(wav)))
             try:
-                tr = transcribe_audio(wav, settings, opts, duration, _stage_cb(pid, "transcribing"))
+                tr = transcribe_audio(wav, settings, opts, duration, _stage_cb(pid, "transcribing"), tag=pid)
             except Exception as e:  # noqa: BLE001
                 log.warning("Transcription impossible : %s", e)
                 tr = {"language": None, "segments": [], "warning": f"Transcription indisponible : {e}"}
@@ -321,11 +321,61 @@ def process_project(pid: str) -> None:
     _set(pid, "done", 1.0, f"{len(clips)} clips prêts")
 
 
-def transcribe_audio(wav: Path, settings: dict, opts: dict, duration: float, cb) -> dict:
-    from .pipeline import transcribe as tr
+WHISPER_FALLBACK = ["large-v3-turbo", "medium", "small", "base", "tiny"]
 
-    return tr.transcribe(wav, model=settings.get("whisper_model") or "small",
-                         language=opts.get("language"), duration=duration, progress=cb)
+
+def transcribe_audio(wav: Path, settings: dict, opts: dict, duration: float, cb, tag: str | None = None) -> dict:
+    """Transcription dans un processus séparé, avec repli sur des modèles plus légers en cas d'échec."""
+    import subprocess
+    import sys
+
+    first = settings.get("whisper_model") or "small"
+    lighter = WHISPER_FALLBACK[WHISPER_FALLBACK.index(first) + 1:] if first in WHISPER_FALLBACK else ["base", "tiny"]
+    chain = [first] + lighter[:2]
+    out = wav.with_suffix(".transcript.json")
+    errors = []
+    for model in chain:
+        cb(0.0, f"Transcription (modèle {model})…")
+        cmd = [sys.executable, "-m", "app.pipeline.transcribe", str(wav), str(out), model,
+               opts.get("language") or "auto", str(duration)]
+        errlog = wav.with_suffix(".whisper.log")
+        errfh = open(errlog, "w")  # fichier (et pas un tube) : évite tout blocage si Whisper écrit beaucoup
+        proc = subprocess.Popen(cmd, cwd=str(Path(__file__).resolve().parent.parent), stdout=subprocess.PIPE,
+                                stderr=errfh, text=True)
+        if tag:
+            ff.RUNNING[tag] = proc
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if line.startswith("PROGRESS "):
+                parts = line.rstrip("\n").split(" ", 2)
+                try:
+                    cb(float(parts[1]), parts[2] if len(parts) > 2 else "")
+                except ValueError:
+                    pass
+        code = proc.wait()
+        errfh.close()
+        err = errlog.read_text(errors="ignore")
+        errlog.unlink(missing_ok=True)
+        if tag and ff.RUNNING.get(tag) is proc:
+            ff.RUNNING.pop(tag, None)
+        if code == 0 and out.exists():
+            res = json.loads(out.read_text())
+            out.unlink(missing_ok=True)
+            if model != first:
+                res["warning"] = (f"Le modèle de transcription « {first} » a échoué sur ce serveur : "
+                                  f"« {model} » a été utilisé à la place (un peu moins précis).")
+            return res
+        if code == -9:
+            reason = "mémoire insuffisante (processus arrêté par le système)"
+        elif code < 0:
+            reason = "arrêtée"
+        else:
+            reason = (err.strip().splitlines() or ["erreur inconnue"])[-1][:200]
+        errors.append(f"{model} : {reason}")
+        log.warning("Transcription %s échouée : %s", model, reason)
+        if code < 0 and code != -9:  # projet supprimé : on n'insiste pas
+            break
+    raise RuntimeError(" ; ".join(errors))
 
 
 def guess_genre(meta: dict, segments: list[dict]) -> str:
