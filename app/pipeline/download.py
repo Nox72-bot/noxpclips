@@ -124,6 +124,7 @@ def download(
     end: float | None = None,
     cookies: str | None = None,
     progress: Callable[[float, str], None] | None = None,
+    tag: str | None = None,
 ) -> dict:
     """Télécharge la vidéo en mp4 (≤1080p). Retourne {path, info, chat_path}."""
     import yt_dlp
@@ -143,9 +144,7 @@ def download(
 
     opts = {
         **_base_opts(cookies),
-        # ≤1080p et ≤30 i/s en priorité : le clip final est en 30 i/s, et le fichier pèse 2x moins
-        "format": ("bv*[height<=1080][fps<=30][ext=mp4]+ba[ext=m4a]/bv*[height<=1080][fps<=30]+ba/"
-                   "b[height<=1080][fps<=30]/bv*[height<=1080]+ba/b[height<=1080]/b"),
+        "format": FORMAT,
         "merge_output_format": "mp4",
         "outtmpl": str(out_dir / "source.%(ext)s"),
         "progress_hooks": [hook],
@@ -162,14 +161,21 @@ def download(
                 "ou choisis une plage précise (début/fin) à analyser."
             )
         opts["live_from_start"] = True
-    if start is not None or end is not None:
+    check_space(out_dir, start, end, info0.get("duration") or 0)
+    if info0["is_live"]:
         s = float(start or 0)
         e = float(end) if end else float(info0.get("duration") or 10**7)
         opts["download_ranges"] = download_range_func(None, [(s, e)])
         opts["force_keyframes_at_cuts"] = True
-    check_space(out_dir, start, end, info0.get("duration") or 0)
-
-    info = _extract(url, opts, download=True)
+        info = _extract(url, opts, download=True)
+    elif start is not None or end is not None:
+        # Passage d'une vidéo : ffmpeg ne lit que ce morceau, avec une vraie progression
+        s = float(start or 0)
+        e = float(end) if end else float(info0.get("duration") or 0) or 10**7
+        info = download_section(url, out_dir, s, e, cookies=cookies, progress=progress, tag=tag,
+                                want_chat=info0.get("has_live_chat", False))
+    else:
+        info = _extract(url, opts, download=True)
 
     path = None
     for cand in sorted(out_dir.glob("source.*")):
@@ -265,6 +271,69 @@ def fetch_timestamp_comments(url: str, cookies: str | None, offset: float = 0.0,
             if t >= 0:
                 out.append({"t": t, "likes": int(c.get("like_count") or 0), "text": text[:200]})
     return out
+
+
+# ≤1080p et ≤30 i/s en priorité : le clip final est en 30 i/s, et le fichier pèse 2x moins
+FORMAT = ("bv*[height<=1080][fps<=30][ext=mp4]+ba[ext=m4a]/bv*[height<=1080][fps<=30]+ba/"
+          "b[height<=1080][fps<=30]/bv*[height<=1080]+ba/b[height<=1080]/b")
+
+
+def download_section(url: str, out_dir: Path, start: float, end: float, *, cookies: str | None = None,
+                     progress: Callable[[float, str], None] | None = None, tag: str | None = None,
+                     want_chat: bool = False) -> dict:
+    """Télécharge uniquement [start, end] avec ffmpeg (HLS Twitch, DASH YouTube…), progression réelle."""
+    from .ffmpeg import run_ffmpeg
+
+    if progress:
+        progress(0.01, "Préparation du téléchargement…")
+    info = _extract(url, {**_base_opts(cookies), "format": FORMAT, "skip_download": True}, download=False)
+    fmts = info.get("requested_formats") or [info]
+    dur = max(1.0, end - start)
+    args: list[str] = []
+    for f in fmts:
+        if not f.get("url"):
+            raise RuntimeError("Impossible de trouver le flux vidéo de ce lien.")
+        headers = f.get("http_headers") or info.get("http_headers") or {}
+        if headers:
+            args += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in headers.items())]
+        # coupe au bout de 30 s sans réponse du réseau, au lieu de rester bloqué indéfiniment
+        args += ["-rw_timeout", "30000000"]
+        if "m3u8" not in (f.get("protocol") or ""):
+            args += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "10"]
+        args += ["-ss", f"{start:.2f}", "-t", f"{dur:.2f}", "-i", f["url"]]
+    if len(fmts) >= 2:
+        args += ["-map", "0:v:0", "-map", "1:a:0"]
+    else:
+        args += ["-map", "0:v:0", "-map", "0:a:0?"]
+    out = out_dir / "source.mp4"
+    args += ["-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", str(out)]
+
+    def cb(frac: float):
+        if progress:
+            progress(min(0.99, 0.02 + 0.97 * frac), f"Téléchargement… {int(frac * 100)} %")
+
+    run_ffmpeg(args, duration=dur, progress=cb, tag=tag)
+    # ffmpeg peut finir « sans erreur » avec un fichier vide si le flux a été coupé : on vérifie
+    from .ffmpeg import probe as ffprobe
+
+    try:
+        got = ffprobe(out)
+    except Exception:  # noqa: BLE001
+        got = {"duration": 0, "width": 0}
+    if not got.get("width") or got.get("duration", 0) < min(dur * 0.5, dur - 5):
+        out.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Téléchargement incomplet ({got.get('duration', 0):.0f} s reçues sur {dur:.0f} s) : "
+            "la plateforme a coupé la connexion. Réessaie, ou choisis une plage plus courte."
+        )
+    if want_chat:  # chat d'une rediffusion de live YouTube : téléchargé à part
+        try:
+            _extract(url, {**_base_opts(cookies), "skip_download": True, "writesubtitles": True,
+                           "subtitleslangs": ["live_chat"], "outtmpl": str(out_dir / "source.%(ext)s")},
+                     download=True)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Chat du live indisponible : %s", e)
+    return info
 
 
 MAX_HOURS = 2.05         # au-delà, il faut choisir une plage (2 h max par projet)

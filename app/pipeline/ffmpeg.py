@@ -14,11 +14,23 @@ class FFmpegError(RuntimeError):
     pass
 
 
+# ffmpeg en cours, par projet : permet d'arrêter vraiment un traitement quand on supprime le projet
+RUNNING: dict[str, subprocess.Popen] = {}
+
+
+def kill(tag: str) -> None:
+    proc = RUNNING.pop(tag, None)
+    if proc and proc.poll() is None:
+        proc.kill()
+
+
 def run_ffmpeg(args: list[str], *, duration: float | None = None,
-               progress: Callable[[float], None] | None = None) -> None:
+               progress: Callable[[float], None] | None = None, tag: str | None = None) -> None:
     cmd = ["ffmpeg", "-hide_banner", "-y", "-nostdin", "-loglevel", "error", "-stats_period", "1",
            "-progress", "pipe:1", *args]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if tag:
+        RUNNING[tag] = proc
     assert proc.stdout is not None
     for line in proc.stdout:
         if progress and duration and line.startswith("out_time_us="):
@@ -28,7 +40,12 @@ def run_ffmpeg(args: list[str], *, duration: float | None = None,
             except ValueError:
                 pass
     err = proc.stderr.read() if proc.stderr else ""
-    if proc.wait() != 0:
+    code = proc.wait()
+    if tag and RUNNING.get(tag) is proc:
+        RUNNING.pop(tag, None)
+    if code != 0:
+        if code < 0:
+            raise FFmpegError("Traitement arrêté.")
         raise FFmpegError(err.strip()[-1500:] or "ffmpeg a échoué")
 
 

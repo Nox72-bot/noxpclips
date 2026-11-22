@@ -152,6 +152,7 @@ def render_clip(
     encoder: str = "libx264",
     preset: str = "veryfast",
     progress: Callable[[float], None] | None = None,
+    tag: str | None = None,
 ) -> dict:
     work.mkdir(parents=True, exist_ok=True)
     dur = end - start
@@ -338,7 +339,7 @@ def render_clip(
         str(out),
     ]
     (work / "ffmpeg_args.txt").write_text("\n".join(args))
-    run_ffmpeg(args, duration=out_dur, progress=progress)
+    run_ffmpeg(args, duration=out_dur, progress=progress, tag=tag)
     thumb = out.with_suffix(".jpg")
     grab_frame(out, min(1.2, out_dur / 2), thumb, width=540)
     return {"duration": round(out_dur, 2), "thumb": thumb.name, "groups": len(groups), "translation": translation}
