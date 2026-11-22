@@ -26,6 +26,28 @@ def _load(name: str):
         return _models[name]
 
 
+def _read_wav(wav: Path):
+    """Lit le WAV 16 kHz mono nous-mêmes (numpy), sans PyAV.
+
+    Certaines combinaisons faster-whisper / PyAV plantent à l'ouverture des fichiers
+    (« unexpected keyword argument 'metadata_errors' ») : en donnant directement le signal,
+    on ne dépend plus de PyAV.
+    """
+    import wave
+
+    import numpy as np
+
+    with wave.open(str(wav), "rb") as w:
+        if w.getsampwidth() != 2 or w.getframerate() != 16000:
+            return str(wav)  # format inattendu : on laisse faster-whisper décoder
+        raw = w.readframes(w.getnframes())
+        channels = w.getnchannels()
+    audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
+    return audio
+
+
 def transcribe(
     wav: Path,
     *,
@@ -38,7 +60,7 @@ def transcribe(
     m = _load(model)
     lang = None if not language or language == "auto" else language
     segments, info = m.transcribe(
-        str(wav),
+        _read_wav(wav),
         language=lang,
         word_timestamps=True,
         vad_filter=True,

@@ -313,7 +313,8 @@ def render_clip(
         parts.append("loudnorm=I=-14:TP=-1.5:LRA=11")
         if opts.get("transitions"):
             parts.append(f"afade=t=in:st=0:d=0.2,afade=t=out:st={max(0, out_dur - 0.35):.2f}:d=0.35")
-        parts.append("aresample=44100")
+        # format de sortie imposé : évite « Cannot select channel layout » (flux Twitch / ffmpeg 5)
+        parts.append("aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo")
         fc.append(a_chain + ",".join(parts) + "[aout]")
     else:
         inputs += ["-f", "lavfi", "-t", f"{out_dur:.2f}", "-i", "anullsrc=r=44100:cl=stereo"]
