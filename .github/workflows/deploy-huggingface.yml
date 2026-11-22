@@ -1,0 +1,26 @@
+# Déploie NOXPclips sur ton Space Hugging Face à chaque push sur main (ou à la demande).
+# À configurer une fois dans GitHub → Settings → Secrets and variables → Actions :
+#   - secret   HF_TOKEN : jeton Hugging Face avec le droit « write »
+#   - variable HF_SPACE : ton-pseudo/noxpclips
+name: Déployer sur Hugging Face
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ vars.HF_SPACE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Envoi vers le Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          USER_NAME="${HF_SPACE%%/*}"
+          git push --force "https://${USER_NAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" HEAD:main
