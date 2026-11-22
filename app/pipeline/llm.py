@@ -74,12 +74,20 @@ def chat(settings: dict, system: str, user: str, engine: str | None = None, time
             return httpx.post(f"{GEMINI_BASE}/models/{model}:generateContent",
                               headers=headers, json=body, timeout=timeout)
 
-        r = call(settings.get("gemini_model") or GEMINI_DEFAULT)
+        model = settings.get("gemini_model") or GEMINI_DEFAULT
+        r = _with_retries(lambda: call(model))
         if r.status_code in (400, 404):  # modèle retiré ou renommé par Google : on prend le bon tout seul
-            model = _discover_gemini_model(headers)
-            if model:
+            found = _gemini_models(headers)
+            if found:
+                model = found[0]
                 _remember(settings, "gemini_model", model)
-                r = call(model)
+                r = _with_retries(lambda: call(model))
+        if r.status_code in (429, 500, 503):  # modèle saturé : on essaie un autre modèle gratuit, sans l'enregistrer
+            for alt in [m for m in _gemini_models(headers, include_lite=True) if m != model][:3]:
+                r = _with_retries(lambda alt=alt: call(alt), attempts=1)
+                if r.status_code < 400:
+                    log.info("Gemini %s saturé : réponse obtenue avec %s", model, alt)
+                    break
         _check(r, "Gemini")
         parts = r.json()["candidates"][0]["content"]["parts"]
         return "".join(p.get("text", "") for p in parts)
@@ -92,7 +100,7 @@ def chat(settings: dict, system: str, user: str, engine: str | None = None, time
                 json={"model": model, "temperature": 0.4, "response_format": {"type": "json_object"},
                       "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]})
 
-        r = call_groq(settings.get("groq_model") or GROQ_DEFAULT)
+        r = _with_retries(lambda: call_groq(settings.get("groq_model") or GROQ_DEFAULT))
         if r.status_code in (400, 404) and "model" in r.text.lower():
             model = _discover_groq_model(headers)
             if model:
@@ -129,21 +137,37 @@ def _remember(settings: dict, key: str, value: str) -> None:
         pass
 
 
-def _discover_gemini_model(headers: dict) -> str | None:
-    """Choisit le meilleur modèle « flash » gratuit réellement disponible pour cette clé."""
+def _with_retries(fn, attempts: int = 3) -> httpx.Response:
+    """Réessaie quand le service est momentanément saturé (429 / 500 / 503)."""
+    import time
+
+    r = fn()
+    for i in range(attempts - 1):
+        if r.status_code not in (429, 500, 503):
+            break
+        time.sleep(3 * (i + 1))
+        r = fn()
+    return r
+
+
+def _gemini_models(headers: dict, include_lite: bool = False) -> list[str]:
+    """Modèles « flash » gratuits réellement disponibles pour cette clé, du meilleur au moins bon."""
     try:
         r = httpx.get(f"{GEMINI_BASE}/models", headers=headers, params={"pageSize": 200}, timeout=20)
         r.raise_for_status()
     except httpx.HTTPError:
-        return None
+        return []
     names = [m["name"].split("/", 1)[-1] for m in r.json().get("models", [])
              if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+    bad = ("image", "tts", "audio", "live", "embedding", "exp", "preview", "thinking", "8b")
+    flash = sorted([n for n in names if "flash" in n and "lite" not in n and not any(b in n for b in bad)],
+                   reverse=True)
     if "gemini-flash-latest" in names:
-        return "gemini-flash-latest"
-    bad = ("lite", "image", "tts", "audio", "live", "embedding", "exp", "preview", "thinking", "8b")
-    flash = [n for n in names if "flash" in n and not any(b in n for b in bad)]
-    flash = flash or [n for n in names if "flash" in n] or [n for n in names if n.startswith("gemini")]
-    return sorted(flash, reverse=True)[0] if flash else None
+        flash = ["gemini-flash-latest"] + [n for n in flash if n != "gemini-flash-latest"]
+    if include_lite:
+        flash += sorted([n for n in names if "flash" in n and "lite" in n and not any(b in n for b in bad)],
+                        reverse=True)
+    return flash or [n for n in names if n.startswith("gemini")]
 
 
 def _discover_groq_model(headers: dict) -> str | None:
