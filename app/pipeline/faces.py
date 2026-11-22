@@ -64,7 +64,12 @@ def analyze_layout(src: Path, duration: float, width: int, height: int, genre: s
     found = detect_faces(src, times)
     frames_with = [f for f in found if f]
     if not found or len(frames_with) < max(3, int(0.45 * len(found))):
-        return {"mode": "fill" if genre == "gaming" else "fit", "cx": 0.5}
+        return {"mode": "fill" if genre in ("gaming", "gta") else "fit", "cx": 0.5}
+    # Plusieurs personnes bien écartées (vidéo concept entre potes, plateau) : on garde tout le monde
+    wide_groups = sum(1 for f in frames_with
+                      if len(f) >= 2 and max(b[0] + b[2] / 2 for b in f) - min(b[0] + b[2] / 2 for b in f) > 0.35)
+    if wide_groups >= max(3, int(0.4 * len(frames_with))):
+        return {"mode": "fit", "cx": 0.5, "group": True}
     # on garde le plus grand visage de chaque image
     main = [max(f, key=lambda b: b[2] * b[3]) for f in frames_with]
     cxs = np.array([b[0] + b[2] / 2 for b in main])

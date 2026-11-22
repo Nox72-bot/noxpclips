@@ -2,12 +2,13 @@ import { $, $$, api, esc, fmtClock, fmtDur, go, icon, parseClock, store, toast, 
 import { RECIPES } from "./home.js";
 
 export const GENRES = [
-  ["auto", "⚡", "Laisser l'IA détecter"], ["gaming", "🎮", "Gaming"], ["lifestyle", "🏡", "Style de vie"],
-  ["sports", "🏅", "Sports"], ["marketing", "📈", "Marketing & Webinaire"], ["entertainment", "🎨", "Divertissement"],
-  ["news", "📰", "Actualités"], ["education", "📚", "Informatif & Éducatif"],
+  ["auto", "⚡", "Laisser l'IA détecter"], ["concept", "🎬", "Concept YouTube"], ["gta", "🚓", "GTA / GTA RP"],
+  ["gaming", "🎮", "Gaming"], ["entertainment", "🎨", "Divertissement"], ["reaction", "😮", "Réaction"],
+  ["sports", "🏅", "Sports"], ["lifestyle", "🏡", "Style de vie"],
 ];
 export const MORE_GENRES = [["podcast", "🎙️", "Podcast & Interview"], ["humor", "😂", "Humour"],
-  ["reaction", "😮", "Réaction"], ["irl", "📱", "IRL / Just Chatting"]];
+  ["irl", "📱", "IRL / Just Chatting"], ["marketing", "📈", "Marketing & Webinaire"], ["news", "📰", "Actualités"],
+  ["education", "📚", "Informatif & Éducatif"]];
 export const CLIP_TYPES = [["viral", "🔥", "Viraux (sûrs de marcher)"], ["funny", "😂", "Les plus drôles"],
   ["drama", "🎭", "Les plus dramatiques"], ["hype", "⚡", "Les plus épiques"]];
 export const LENGTHS = [["auto", "Auto (<90s)"], ["lt30", "<30s"], ["30_59", "30s~59s"], ["60_89", "60s~89s"],
@@ -65,7 +66,7 @@ export async function renderNew(view) {
     max_clips: 10, ai_engine: "", layout_mode: "", cam_corner: "top-left", captions: true,
     caption_style: settings.brand.caption_style || "neon", caption_position: settings.brand.caption_position || "middle",
     hook: true, hook_style: "punchy", hook_duration: 4, ai_emojis: false, voice_cleanup: "off", enhance_audio: false,
-    auto_zoom: false, transitions: false, color_correct: false, translate_to: "", brand_logo: true, split: true,
+    auto_zoom: false, transitions: false, color_correct: false, translate_to: "", brand_logo: true, split: true, captions_fr: true,
     ...draft.options,
   };
   const dur = Math.round(src.duration || 0);
@@ -156,8 +157,10 @@ export async function renderNew(view) {
 
         <div class="section-title">Traduction</div>
         ${row("dub", "globe", "Doublage vocal", toggle("dub", false, "disabled"), { soon: true })}
-        ${row("translate", "translate", "Traduction des sous-titres", `<select class="select-inline" id="translate_lang">${TRANSLATE.map((l) => `<option ${o.translate_to === l ? "selected" : ""}>${l}</option>`).join("")}</select>${toggle("translate", !!o.translate_to)}`, { on: !!o.translate_to })}
-        <p class="small faint" style="margin:0 0 0 54px">La traduction utilise ton IA gratuite (Ollama, Gemini ou Groq) — à configurer dans Réglages.</p>
+        ${row("captions_fr", "translate", "Sous-titres toujours en français 🇫🇷", toggle("captions_fr", o.captions_fr), { on: o.captions_fr })}
+        <p class="small faint" style="margin:-6px 0 8px 54px">Vidéo en français : titres et sous-titres en français. Vidéo dans une autre langue : titres et accroches en anglais, sous-titres traduits en français.</p>
+        ${row("translate", "globe", "Traduire vers une autre langue", `<select class="select-inline" id="translate_lang">${TRANSLATE.filter((l) => l !== "français").map((l) => `<option ${o.translate_to === l ? "selected" : ""}>${l}</option>`).join("")}</select>${toggle("translate", !!o.translate_to && o.translate_to !== "français")}`, { on: !!o.translate_to && o.translate_to !== "français" })}
+        <p class="small faint" style="margin:0 0 0 54px">Traduction gratuite : ton IA (Gemini / Groq / Ollama) si configurée, sinon un service gratuit limité (~5 000 caractères par jour).</p>
       </div>
     </div>
 
@@ -191,7 +194,7 @@ export async function renderNew(view) {
   bindToggle("split", "split", "splitbox");
   bindToggle("captions", "captions", "capbox");
   bindToggle("hook", "hook", "hookbox");
-  ["ai_emojis", "enhance_audio", "auto_zoom", "transitions", "color_correct", "brand_logo"].forEach((k) => bindToggle(k, k));
+  ["ai_emojis", "enhance_audio", "auto_zoom", "transitions", "color_correct", "brand_logo", "captions_fr"].forEach((k) => bindToggle(k, k));
   bindToggle("voice_cleanup");
   bindToggle("translate");
   $("#caption_position").value = o.caption_position;

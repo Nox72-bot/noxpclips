@@ -217,6 +217,7 @@ def render_clip(
     pos = opts.get("caption_position") or brand.get("caption_position") or "middle"
 
     groups: list[list[dict]] = []
+    translation = ""
     if opts.get("captions", True) and kept_words:
         cap_kwargs = dict(
             style_id=opts.get("caption_style") or brand.get("caption_style") or "neon",
@@ -231,10 +232,12 @@ def render_clip(
         ass_txt, groups = cap.build_ass(kept_words, **cap_kwargs)
         if translate_fn and groups:
             try:
-                lines = translate_fn([" ".join(w["w"] for w in g) for g in groups])
+                lines = translate_fn([" ".join(w.get("o", w["w"]) for w in g) for g in groups])
                 ass_txt, groups = cap.build_ass(kept_words, translated=lines, **cap_kwargs)
+                translation = "ok"
             except Exception as e:  # noqa: BLE001
                 log.warning("Traduction des sous-titres impossible : %s", e)
+                translation = f"échec : {e}"
         ass_path = work / "captions.ass"
         ass_path.write_text(ass_txt, encoding="utf-8")
         (work / "captions.srt").write_text(cap.plain_srt(kept_words), encoding="utf-8")
@@ -338,4 +341,4 @@ def render_clip(
     run_ffmpeg(args, duration=out_dur, progress=progress)
     thumb = out.with_suffix(".jpg")
     grab_frame(out, min(1.2, out_dur / 2), thumb, width=540)
-    return {"duration": round(out_dur, 2), "thumb": thumb.name, "groups": len(groups)}
+    return {"duration": round(out_dur, 2), "thumb": thumb.name, "groups": len(groups), "translation": translation}

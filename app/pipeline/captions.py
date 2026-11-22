@@ -92,13 +92,15 @@ def build_ass(words: list[dict], *, style_id: str = "neon", position: str = "mid
     for w in words:
         txt = strip_emoji(w["w"]).strip()
         if txt:
-            clean.append({**w, "w": txt.upper() if st["upper"] else txt})
+            clean.append({**w, "w": txt.upper() if st["upper"] else txt, "o": txt})
     groups = group_words(clean, st["words"], max_chars)
 
     if translated and len(translated) == len(groups):
         new_groups = []
         for g, tr in zip(groups, translated):
-            toks = (tr.upper() if st["upper"] else tr).split() or [g[0]["w"]]
+            toks = strip_emoji(tr.upper() if st["upper"] else tr).split()
+            if not toks:
+                continue
             gs, ge = g[0]["s"], g[-1]["e"]
             step = (ge - gs) / len(toks)
             new_groups.append([{"s": gs + i * step, "e": gs + (i + 1) * step, "w": t} for i, t in enumerate(toks)])

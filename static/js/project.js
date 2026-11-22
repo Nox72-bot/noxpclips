@@ -5,6 +5,7 @@ import { HOOK_STYLES, LAYOUTS, CORNERS, CLIP_TYPES, LENGTHS, GENRES, MORE_GENRES
 const STEPS = [["downloading", "download", "Téléchargement"], ["transcribing", "mic", "Transcription"],
   ["analyzing", "sparkles", "Analyse IA"], ["rendering", "scissors", "Montage 9:16"]];
 const FILTERS = [["all", "Tous"], ["top", "🔥 Top viral"], ["funny", "😂 Drôles"], ["drama", "🎭 Dramatiques"], ["hype", "⚡ Épiques"]];
+const LANG_NAMES = { fr: "français", en: "anglais", es: "espagnol", de: "allemand", it: "italien", pt: "portugais", ar: "arabe", nl: "néerlandais", ja: "japonais" };
 const ENGINE_NAMES = { heuristic: "NOXP Local (heuristiques)", ollama: "Ollama (IA locale)", gemini: "Gemini", groq: "Groq" };
 
 function scoreCls(s) { return s >= 85 ? "hi" : s >= 72 ? "mid" : "lo"; }
@@ -29,6 +30,7 @@ function clipCard(c) {
       <div class="scores-mini"><span>😂 <b>${s.funny ?? "-"}</b></span><span>🎭 <b>${s.drama ?? "-"}</b></span><span>⚡ <b>${s.hype ?? "-"}</b></span><span class="faint">${fmtClock(c.start)} → ${fmtClock(c.end)}</span></div>
       ${c.reason ? `<div class="clip-reason">${esc(c.reason)}</div>` : ""}
       <div class="small faint">${esc((c.hashtags || []).join(" "))}</div>
+      ${(c.overrides || {})._translation && (c.overrides._translation.includes("échec")) ? `<div class="small" style="color:var(--warn)">⚠️ Sous-titres non traduits (${esc(c.overrides._translation.split("échec : ")[1] || "")}). Ajoute une clé Gemini gratuite dans Réglages puis « Modifier → Regénérer ».</div>` : ""}
       <div class="clip-actions">
         <a class="btn" ${c.file && !busy ? `href="/api/clips/${c.id}/download" download` : "disabled"}>${icon("download", "sm")}Télécharger</a>
         <button class="btn" data-act="share" ${c.file && !busy ? "" : "disabled"}>${icon("share", "sm")}Partager</button>
@@ -86,9 +88,11 @@ export async function renderProject(view, { id }) {
     view.innerHTML = head() + `
       <div class="row wrap small muted" style="gap:8px 16px;margin-bottom:14px">
         <span>${icon("sparkles", "sm")} IA : <b style="color:var(--text)">${esc(ENGINE_NAMES[meta.ai_engine_used] || meta.ai_engine_used || "—")}</b></span>
-        <span>🎯 Catégorie : <b style="color:var(--text)">${esc(meta.genre || "auto")}</b></span>
+        <span>🎯 Catégorie : <b style="color:var(--text)">${esc((([...GENRES, ...MORE_GENRES].find(([v]) => v === meta.genre)) || [0, 0, meta.genre || "auto"])[2])}</b></span>
         ${meta.chat ? `<span>💬 Chat du live analysé</span>` : ""}
-        ${meta.language ? `<span>🗣️ ${esc(meta.language)}</span>` : ""}
+        ${(meta.audience_signals || {}).heatmap ? `<span>📈 « Moments les plus revus » YouTube</span>` : ""}
+        ${(meta.audience_signals || {}).comments ? `<span>💬 ${meta.audience_signals.comments} commentaires horodatés</span>` : ""}
+        ${meta.language ? `<span>🗣️ Vidéo en ${esc(LANG_NAMES[meta.language] || meta.language)} · textes en ${meta.text_language === "en" ? "anglais" : "français"}${meta.language !== "fr" && p.options.captions_fr !== false ? " · sous-titres traduits en français" : ""}</span>` : ""}
         <span>📐 ${esc({ split: "Facecam + jeu", fill: "Recadrage 9:16", fit: "Fond flou" }[(p.options.layout_mode || (meta.layout || {}).mode)] || "Auto")}</span>
       </div>
       ${meta.warning ? `<div class="card flat small" style="border-color:#ffb02055;color:var(--warn);margin-bottom:14px">${esc(meta.warning)}</div>` : ""}

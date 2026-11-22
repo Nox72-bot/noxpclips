@@ -68,6 +68,38 @@ CHAT_HYPE = ["pog", "pogchamp", "poggers", "pogu", "letsgo", "lets go", "gg", "o
 CHAT_DRAMA = ["monkas", "sadge", "pepehands", "😭", "rip", "f", "ratio", "malaise", "gene",
               "aie", "oof", "yikes", "drama", "clash", "😳"]
 
+# Vocabulaire spécifique à certains types de vidéos (normalisé : minuscules, sans accents)
+GENRE_WORDS = {
+    # Vidéos concept YouTube (défis entre potes, jeux, réactions…)
+    "concept": {
+        "funny": ["j'en peux plus", "jen peux plus", "je pleure", "je suis plie", "plie", "mort de rire",
+                  "c'est horrible", "cest horrible", "malaise", "genant", "la honte", "beurk", "degueulasse",
+                  "vomir", "oh non", "non non non", "c'est quoi ca", "cest quoi ca", "t'es serieux", "tes serieux",
+                  "aie", "ouille", "cringe", "mais pourquoi", "il est fou", "elle est folle", "n'importe quoi",
+                  "nimporte quoi", "pitie", "au secours", "j'ai peur", "jai peur"],
+        "hype": ["il l'a fait", "il la fait", "elle l'a fait", "gagne", "victoire", "le gagnant", "la gagnante",
+                 "finale", "dernier", "derniere", "elimine", "bravo", "trop fort", "chef d'oeuvre", "mais oui",
+                 "record", "reussi", "c'est valide", "cest valide", "incroyable"],
+        "drama": ["tricheur", "triche", "c'est pas juste", "cest pas juste", "injuste", "j'abandonne", "jabandonne",
+                  "abandon", "vexe", "boude", "contre moi", "vote", "eliminee", "perdu", "j'ai perdu", "jai perdu",
+                  "c'est fini pour", "trahi", "menteur"],
+    },
+    # GTA / GTA RP
+    "gta": {
+        "hype": ["poursuite", "course poursuite", "police", "flic", "keuf", "condes", "braquage", "braque",
+                 "banque", "fusillade", "explosion", "explose", "crash", "drift", "wheeling", "helico", "avion",
+                 "parachute", "tank", "etoiles", "wanted", "fonce", "accelere", "go go go", "cache toi",
+                 "ils arrivent", "il m'a tue", "il ma tue", "headshot", "abattu", "semer", "on les a semes",
+                 "on les a perdus", "plein gaz"],
+        "funny": ["ragdoll", "il s'envole", "il senvole", "ecrase", "renverse", "bug", "beug", "glitch", "pnj",
+                  "fail", "il est tombe", "tombe", "dans l'eau", "le poteau", "tonneau", "il a glisse"],
+        "drama": ["menottes", "prison", "garde a vue", "les mains en l'air", "pose ton arme", "gang",
+                  "balance", "mouchard", "dette", "rancon", "otage", "kidnapping", "enleve", "le boss", "patron",
+                  "territoire", "t'es qui", "tes qui", "degage", "wallah", "sur la tete", "tu vas payer",
+                  "je vais te", "trahison"],
+    },
+}
+
 STOPWORDS = set("""le la les un une des de du et en a au aux ce ces cette pour par sur dans avec
 sans plus moins tres trop que qui quoi ou mais donc car ne pas je tu il elle on nous vous ils
 elles mon ma mes ton ta tes son sa ses leur leurs est sont etre avoir fait faire trouve trouver
@@ -102,8 +134,14 @@ def _smooth(x: np.ndarray, w: int = 3) -> np.ndarray:
 
 
 def build_signals(duration: float, segments: list[dict], loud: list[float],
-                  chat: list[dict], prompt: str = "") -> dict[str, np.ndarray]:
+                  chat: list[dict], prompt: str = "", *, genre: str = "",
+                  heatmap: list[dict] | None = None, comments: list[dict] | None = None) -> dict[str, np.ndarray]:
     n = max(1, int(math.ceil(duration)))
+    extra = GENRE_WORDS.get(genre, {})
+    v_funny = FUNNY_WORDS + extra.get("funny", [])
+    v_hype = HYPE_WORDS + extra.get("hype", [])
+    v_drama = DRAMA_WORDS + extra.get("drama", [])
+    multi = {k: [p for p in v if " " in p] for k, v in (("funny", v_funny), ("hype", v_hype), ("drama", v_drama))}
     funny = np.zeros(n)
     hype = np.zeros(n)
     drama = np.zeros(n)
@@ -122,9 +160,9 @@ def build_signals(duration: float, segments: list[dict], loud: list[float],
             chunk = norm(" ".join(x["w"] for x in words[k:k + 3]))
             first = norm(words[k]["w"])
             i = min(n - 1, max(0, int(words[k]["s"])))
-            funny[i] += _count_hits(first, FUNNY_WORDS) + 0.5 * _count_hits(chunk, [p for p in FUNNY_WORDS if " " in p])
-            hype[i] += _count_hits(first, HYPE_WORDS) + 0.5 * _count_hits(chunk, [p for p in HYPE_WORDS if " " in p])
-            drama[i] += _count_hits(first, DRAMA_WORDS) + 0.5 * _count_hits(chunk, [p for p in DRAMA_WORDS if " " in p])
+            funny[i] += _count_hits(first, v_funny) + 0.5 * _count_hits(chunk, multi["funny"])
+            hype[i] += _count_hits(first, v_hype) + 0.5 * _count_hits(chunk, multi["hype"])
+            drama[i] += _count_hits(first, v_drama) + 0.5 * _count_hits(chunk, multi["drama"])
             if prompt_terms and any(t in first for t in prompt_terms):
                 prompt_hit[i] += 1
         # rire répété (« ahahah », « hahaha ») = indicateur fort
@@ -170,15 +208,45 @@ def build_signals(duration: float, segments: list[dict], loud: list[float],
     speech = _smooth(words_ps, 5)
     speech_z = _zscore(speech) if speech.any() else np.zeros(n)
 
+    # Réactions sans parole : fou rire, cri, hurlement (Whisper ne les transcrit pas)
+    has_speech = bool(words_ps.sum() > 10)
+    react = np.clip(loud_z - 1.0, 0, None) * (_smooth(words_ps, 3) < 0.34) if has_speech else np.zeros(n)
+    react = _smooth(react, 3)
+
+    # Audience : courbe « Moments les plus revus » de YouTube + commentaires horodatés
+    heat = np.zeros(n)
+    for h in heatmap or []:
+        a, b = int(max(0, h.get("start_time", 0))), int(min(n, math.ceil(h.get("end_time", 0))))
+        if b > a:
+            heat[a:b] = np.maximum(heat[a:b], float(h.get("value") or 0))
+    if heat.any():
+        med = float(np.median(heat))
+        heat = np.clip((heat - med) / max(1e-6, float(heat.max()) - med), 0, 1)
+    com = np.zeros(n)
+    com_f = np.zeros(n)
+    for cm in comments or []:
+        t = int(cm.get("t", -1))
+        if 0 <= t < n:
+            w = 1.0 + math.log1p(max(0, int(cm.get("likes") or 0)))
+            com[t:t + 10] += w  # on horodate le début du moment : il dure ~10 s
+            if _count_hits(norm(cm.get("text", "")), CHAT_FUNNY + FUNNY_WORDS) > 0:
+                com_f[t:t + 10] += w
+    if com.any():
+        com = com / max(1e-6, float(np.percentile(com[com > 0], 95)))
+        com_f = com_f / max(1e-6, float(com_f.max() or 1))
+    audience = np.clip(0.65 * heat + 0.5 * np.clip(com, 0, 1.5), 0, 1.5)
+
     sig = {
-        "funny": _smooth(funny, 4) * 1.6 + (_smooth(shift(chat_f), 5) / rate_norm * 3 if has_chat else 0),
-        "hype": _smooth(hype, 4) * 1.2 + np.clip(loud_z, 0, None) * 0.55
+        "funny": _smooth(funny, 4) * 1.6 + react * 0.6 + com_f * 1.2
+                 + (_smooth(shift(chat_f), 5) / rate_norm * 3 if has_chat else 0),
+        "hype": _smooth(hype, 4) * 1.2 + np.clip(loud_z, 0, None) * 0.55 + react * 0.4
                 + (_smooth(shift(chat_h), 5) / rate_norm * 3 if has_chat else 0),
         "drama": _smooth(drama, 4) * 1.5
                  + (_smooth(shift(chat_d), 5) / rate_norm * 3 if has_chat else 0),
         "energy": np.clip(loud_z, 0, None) * 0.6 + np.clip(speech_z, 0, None) * 0.25
-                  + np.clip(chat_z, 0, None) * (0.9 if has_chat else 0),
+                  + np.clip(chat_z, 0, None) * (0.9 if has_chat else 0) + react * 0.5 + audience * 1.2,
         "prompt": _smooth(prompt_hit, 6) * 2.0,
+        "audience": audience,
         "speech": words_ps,
         "loud_z": loud_z,
         "chat_z": chat_z,
@@ -275,29 +343,36 @@ def find_candidates(duration: float, segments: list[dict], signals: dict, *,
             "payoff": peak("energy", s + d * 0.5, e) - mean("energy", s, s + d * 0.5) * 0.3,
             "prompt": mean("prompt", s, e),
             "speech": mean("speech", s, e),
+            "audience": mean("audience", s, e) + 0.5 * peak("audience", s, e),
             "fit": math.exp(-((d - ideal) / (ideal * 0.6)) ** 2),
         }
         feats.append(f)
 
-    keys = ["funny", "hype", "drama", "energy", "hook", "payoff", "prompt", "speech"]
+    keys = ["funny", "hype", "drama", "energy", "hook", "payoff", "prompt", "speech", "audience"]
     ranks = {k: _pct_rank(np.array([f[k] for f in feats])) for k in keys}
     wanted = [c for c in (clip_types or ["viral", "funny", "drama", "hype"]) if c in ("viral", *CATEGORIES)]
     if not wanted:
         wanted = ["viral", "funny", "drama", "hype"]
     has_prompt = any(f["prompt"] > 0 for f in feats)
+    has_audience = bool(signals.get("audience") is not None and signals["audience"].any())
 
     for idx, f in enumerate(feats):
         r = {k: float(ranks[k][idx]) for k in keys}
         cat_scores = {c: r[c] * 0.75 + r["energy"] * 0.25 for c in CATEGORIES}
         viral = (0.28 * max(cat_scores.values()) + 0.22 * r["energy"] + 0.18 * r["hook"]
                  + 0.12 * r["payoff"] + 0.10 * f["fit"] + 0.10 * r["speech"])
+        if has_audience:  # données réelles des spectateurs : signal le plus fiable
+            viral = viral * 0.65 + 0.35 * r["audience"]
         if has_prompt:
             viral = viral * 0.75 + 0.25 * r["prompt"]
         f["scores"] = {"viral": viral, **cat_scores}
         sel = [f["scores"][c] for c in wanted]
         f["composite"] = 0.6 * viral + 0.4 * max(sel)
-        f["category"] = max(CATEGORIES, key=lambda c: cat_scores[c])
+        f["category"] = max(CATEGORIES, key=lambda c: r[c])
+        if max(r[c] for c in CATEGORIES) < 0.12:  # aucun signal clair : moment d'action
+            f["category"] = "hype"
         f["hook_strength"] = r["hook"]
+        f["audience_rank"] = r["audience"] if has_audience else 0.0
 
     def overlap(a, b):
         inter = max(0.0, min(a["end"], b["end"]) - max(a["start"], b["start"]))
@@ -375,36 +450,94 @@ def snap(c: dict, segments: list[dict], duration: float) -> tuple[float, float]:
 # ---------- Textes sans LLM ----------
 
 GAMES = {
-    "fortnite": "#fortnite", "gta": "#gta", "minecraft": "#minecraft", "valorant": "#valorant",
-    "fifa": "#fifa", "eafc": "#eafc", "fc 2": "#eafc", "warzone": "#warzone", "call of duty": "#callofduty",
-    "apex": "#apexlegends", "rocket league": "#rocketleague", "league of legends": "#leagueoflegends",
-    "lol ": "#leagueoflegends", "cs2": "#cs2", "counter strike": "#cs2", "roblox": "#roblox",
-    "pokemon": "#pokemon", "zelda": "#zelda", "mario": "#mario", "elden ring": "#eldenring",
+    "gta rp": "#gtarp", "gtarp": "#gtarp", "gta 6": "#gta6", "gta6": "#gta6", "gta vi": "#gta6",
+    "gta 5": "#gta5", "gta v": "#gta5", "gta": "#gta", "fortnite": "#fortnite", "minecraft": "#minecraft",
+    "valorant": "#valorant", "fifa": "#fifa", "eafc": "#eafc", "fc 2": "#eafc", "warzone": "#warzone",
+    "call of duty": "#callofduty", "apex": "#apexlegends", "rocket league": "#rocketleague",
+    "league of legends": "#leagueoflegends", "lol ": "#leagueoflegends", "cs2": "#cs2",
+    "counter strike": "#cs2", "roblox": "#roblox", "pokemon": "#pokemon", "zelda": "#zelda",
+    "mario": "#mario", "elden ring": "#eldenring",
 }
 GENRE_TAGS = {
-    "gaming": ["#gaming", "#gamer", "#twitch"], "lifestyle": ["#lifestyle", "#vlog"],
-    "sports": ["#sport", "#football"], "marketing": ["#business", "#marketing"],
-    "entertainment": ["#divertissement", "#humour"], "news": ["#actu", "#info"],
-    "education": ["#apprendre", "#astuce"], "podcast": ["#podcast", "#interview"],
-    "irl": ["#irl", "#streamer"], "reaction": ["#reaction", "#streamer"], "humor": ["#humour", "#drole"],
+    "fr": {
+        "gaming": ["#gaming", "#gamer", "#twitch"], "gta": ["#gta", "#gtarp", "#gaming"],
+        "concept": ["#youtube", "#concept", "#defi"], "lifestyle": ["#lifestyle", "#vlog"],
+        "sports": ["#sport", "#football"], "marketing": ["#business", "#marketing"],
+        "entertainment": ["#divertissement", "#humour"], "news": ["#actu", "#info"],
+        "education": ["#apprendre", "#astuce"], "podcast": ["#podcast", "#interview"],
+        "irl": ["#irl", "#streamer"], "reaction": ["#reaction", "#streamer"], "humor": ["#humour", "#drole"],
+    },
+    "en": {
+        "gaming": ["#gaming", "#gamer", "#twitch"], "gta": ["#gta", "#gtarp", "#gaming"],
+        "concept": ["#youtube", "#challenge", "#funny"], "lifestyle": ["#lifestyle", "#vlog"],
+        "sports": ["#sports", "#football"], "marketing": ["#business", "#marketing"],
+        "entertainment": ["#entertainment", "#funny"], "news": ["#news"], "education": ["#learn", "#tips"],
+        "podcast": ["#podcast", "#interview"], "irl": ["#irl", "#streamer"], "reaction": ["#reaction"],
+        "humor": ["#funny", "#comedy"],
+    },
 }
 HOOKS = {
-    "funny": ["J'AI PAS PU M'ARRÊTER DE RIRE 😂", "LE MOMENT LE PLUS DRÔLE 😂", "IL S'Y ATTENDAIT PAS 😭",
-              "REGARDE JUSQU'À LA FIN 😂", "PERSONNE N'A COMPRIS 💀"],
-    "drama": ["ÇA A DÉGÉNÉRÉ… 😳", "IL A PAS OSÉ DIRE ÇA", "LE MOMENT OÙ TOUT A BASCULÉ",
-              "TOUT LE MONDE EN PARLE 😳", "PERSONNE NE S'Y ATTENDAIT"],
-    "hype": ["LE MOMENT LE PLUS FOU 🔥", "C'EST PAS POSSIBLE 😱", "PERSONNE NE PEUT REFAIRE ÇA",
-             "ATTENDS LA FIN… 🔥", "ILS ONT TOUS HALLUCINÉ 😱"],
+    "fr": {
+        "funny": ["J'AI PAS PU M'ARRÊTER DE RIRE 😂", "LE MOMENT LE PLUS DRÔLE 😂", "IL S'Y ATTENDAIT PAS 😭",
+                  "REGARDE JUSQU'À LA FIN 😂", "PERSONNE N'A COMPRIS 💀"],
+        "drama": ["ÇA A DÉGÉNÉRÉ… 😳", "IL A PAS OSÉ DIRE ÇA", "LE MOMENT OÙ TOUT A BASCULÉ",
+                  "TOUT LE MONDE EN PARLE 😳", "PERSONNE NE S'Y ATTENDAIT"],
+        "hype": ["LE MOMENT LE PLUS FOU 🔥", "C'EST PAS POSSIBLE 😱", "PERSONNE NE PEUT REFAIRE ÇA",
+                 "ATTENDS LA FIN… 🔥", "ILS ONT TOUS HALLUCINÉ 😱"],
+    },
+    "en": {
+        "funny": ["I CAN'T STOP LAUGHING 😂", "THE FUNNIEST MOMENT 😂", "HE DID NOT SEE THAT COMING 😭",
+                  "WAIT FOR THE END 😂", "NOBODY UNDERSTOOD 💀"],
+        "drama": ["IT ESCALATED FAST… 😳", "HE REALLY SAID THAT", "THE MOMENT EVERYTHING CHANGED",
+                  "EVERYONE IS TALKING ABOUT THIS 😳", "NOBODY EXPECTED THIS"],
+        "hype": ["THE CRAZIEST MOMENT 🔥", "THIS IS IMPOSSIBLE 😱", "NOBODY CAN DO THIS",
+                 "WAIT FOR IT… 🔥", "THEY ALL LOST IT 😱"],
+    },
+}
+GENRE_HOOKS = {
+    ("fr", "gta"): {
+        "hype": ["LA POURSUITE LA PLUS FOLLE 🚔", "LA POLICE N'A RIEN PU FAIRE 🚔", "LE BRAQUAGE A MAL TOURNÉ 💰"],
+        "funny": ["LE PIRE FAIL DE GTA 😂", "LA PHYSIQUE DE GTA EST CASSÉE 💀", "IL S'EST ENVOLÉ 😭"],
+        "drama": ["IL S'EST FAIT TRAHIR 😳", "LE RP A DÉGÉNÉRÉ… 😳", "IL A BALANCÉ TOUT LE GANG"],
+    },
+    ("en", "gta"): {
+        "hype": ["THE CRAZIEST POLICE CHASE 🚔", "THE COPS COULDN'T STOP HIM 🚔", "THE HEIST WENT WRONG 💰"],
+        "funny": ["THE WORST GTA FAIL 😂", "GTA PHYSICS ARE BROKEN 💀", "HE LITERALLY FLEW AWAY 😭"],
+        "drama": ["HE GOT BETRAYED 😳", "THE RP ESCALATED… 😳", "HE SNITCHED ON THE WHOLE GANG"],
+    },
+    ("fr", "concept"): {
+        "funny": ["ILS ONT PAS TENU 😂", "LE CONCEPT A DÉGÉNÉRÉ 😂", "FOU RIRE GÉNÉRAL 😭"],
+        "hype": ["LA FIN EST INCROYABLE 😱", "PERSONNE NE PENSAIT QU'IL GAGNERAIT", "LE RETOURNEMENT DE SITUATION 🔥"],
+        "drama": ["IL A TRICHÉ ?! 😳", "ÇA A MAL FINI… 😳", "IL A PAS DIGÉRÉ 😳"],
+    },
+    ("en", "concept"): {
+        "funny": ["THEY COULDN'T HOLD IT 😂", "THIS CHALLENGE WENT WRONG 😂", "EVERYONE WAS CRYING LAUGHING 😭"],
+        "hype": ["THE ENDING IS INSANE 😱", "NOBODY THOUGHT HE'D WIN", "WHAT A PLOT TWIST 🔥"],
+        "drama": ["DID HE JUST CHEAT?! 😳", "IT ENDED BADLY… 😳", "HE DID NOT TAKE IT WELL 😳"],
+    },
 }
 CTAS = {
-    "funny": ["Je suis encore mort de rire 😂 Abonne-toi pour plus de moments comme ça !",
-              "Tag quelqu'un qui ferait exactement ça 😂", "Le meilleur moment du live 😂 Tu en penses quoi ?"],
-    "drama": ["Qui avait raison selon toi ? 👀 Dis-le en commentaire", "Ça a vite dégénéré… 😳 Team qui ?",
-              "Personne ne s'attendait à ça 😳 Abonne-toi pour la suite"],
-    "hype": ["Dis-moi en commentaire si tu aurais fait mieux 🔥", "Le moment le plus fou du live 🔥 Abonne-toi !",
-             "Regarde jusqu'à la fin… 😱🔥"],
+    "fr": {
+        "funny": ["Je suis encore mort de rire 😂 Abonne-toi pour plus de moments comme ça !",
+                  "Tag quelqu'un qui ferait exactement ça 😂", "Le meilleur moment de la vidéo 😂 Tu en penses quoi ?"],
+        "drama": ["Qui avait raison selon toi ? 👀 Dis-le en commentaire", "Ça a vite dégénéré… 😳 Team qui ?",
+                  "Personne ne s'attendait à ça 😳 Abonne-toi pour la suite"],
+        "hype": ["Dis-moi en commentaire si tu aurais fait mieux 🔥", "Le moment le plus fou 🔥 Abonne-toi !",
+                 "Regarde jusqu'à la fin… 😱🔥"],
+    },
+    "en": {
+        "funny": ["Still crying laughing 😂 Follow for more moments like this!", "Tag someone who would do this 😂",
+                  "Best moment of the video 😂 What do you think?"],
+        "drama": ["Who was right? 👀 Tell me in the comments", "That escalated quickly… 😳 Whose side are you on?",
+                  "Nobody saw this coming 😳 Follow for part 2"],
+        "hype": ["Comment if you could do better 🔥", "The craziest moment 🔥 Follow for more!", "Watch till the end… 😱🔥"],
+    },
 }
-CAT_TAGS = {"funny": ["#drole", "#humour"], "drama": ["#drama", "#clash"], "hype": ["#epic", "#insane"]}
+CAT_TAGS = {
+    "fr": {"funny": ["#drole", "#humour"], "drama": ["#drama", "#clash"], "hype": ["#epique", "#incroyable"]},
+    "en": {"funny": ["#funny", "#lol"], "drama": ["#drama", "#crazy"], "hype": ["#epic", "#insane"]},
+}
+BASE_TAGS = {"fr": ["#fyp", "#pourtoi", "#viral"], "en": ["#fyp", "#foryou", "#viral"]}
 
 
 def _pick(options: list[str], key: str) -> str:
@@ -412,31 +545,37 @@ def _pick(options: list[str], key: str) -> str:
     return options[h % len(options)]
 
 
-def fallback_texts(c: dict, text: str, *, genre: str, source_title: str, source_tags: list[str]) -> dict:
+def fallback_texts(c: dict, text: str, *, genre: str, source_title: str, source_tags: list[str],
+                   lang: str = "fr") -> dict:
+    """Titre, accroche, description, hashtags sans IA — en français si la vidéo est en français, sinon en anglais."""
+    lang = "fr" if lang == "fr" else "en"
     cat = c["category"]
     sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text) if len(x.strip()) > 8]
     best = sentences[0] if sentences else text
+    extra = GENRE_WORDS.get(genre, {})
+    vocab = HYPE_WORDS + FUNNY_WORDS + DRAMA_WORDS + sum(extra.values(), [])
     if sentences:
-        best = max(sentences[:8], key=lambda x: _count_hits(norm(x), HYPE_WORDS + FUNNY_WORDS + DRAMA_WORDS) + min(len(x), 80) / 80)
+        best = max(sentences[:8], key=lambda x: _count_hits(norm(x), vocab) + min(len(x), 80) / 80)
     title = best.strip(" .,")
     if len(title) > 70:
         title = title[:67].rsplit(" ", 1)[0] + "…"
     if not title:
         m, sec = divmod(int(c["start"]), 60)
         title = f"{source_title[:48]} ({m}:{sec:02d})"
-    hook = _pick(HOOKS[cat], f"{c['start']}{source_title}")
+    pool = GENRE_HOOKS.get((lang, genre), {}).get(cat, []) + HOOKS[lang][cat]
+    hook = _pick(pool, f"{c['start']}{source_title}")
     tags = []
     low = f" {source_title.lower()} {' '.join(source_tags).lower()} "
     for k, v in GAMES.items():
         if k in low and v not in tags:
             tags.append(v)
-    g = genre if genre in GENRE_TAGS else ("gaming" if tags else "entertainment")
-    tags += GENRE_TAGS.get(g, [])[:2] + CAT_TAGS[cat] + ["#fyp", "#pourtoi", "#viral"]
+    g = genre if genre in GENRE_TAGS[lang] else ("gaming" if tags else "entertainment")
+    tags += GENRE_TAGS[lang].get(g, [])[:2] + CAT_TAGS[lang][cat] + BASE_TAGS[lang]
     seen = []
     for t in tags:
         if t not in seen:
             seen.append(t)
-    desc = _pick(CTAS[cat], f"{c['end']}{source_title}")
+    desc = _pick(CTAS[lang][cat], f"{c['end']}{source_title}")
     return {"title": title, "hook": hook, "description": desc, "hashtags": seen[:8],
             "reason": reason_for(c)}
 
@@ -450,6 +589,8 @@ def reason_for(c: dict) -> str:
         bits.append("pic d'intensité (voix + volume)")
     if s.get("drama", 0) > 0.75:
         bits.append("tension / clash dans les propos")
+    if c.get("audience_rank", 0) > 0.6:
+        bits.insert(0, "moment parmi les plus revus / commentés par les spectateurs")
     if c.get("hook_strength", 0) > 0.7:
         bits.append("accroche forte dès les 3 premières secondes")
     if not bits:

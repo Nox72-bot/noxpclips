@@ -157,6 +157,29 @@ def download(
         except Exception as e:  # le chat est un bonus, jamais bloquant
             log.warning("Chat Twitch indisponible: %s", e)
 
+    # « Moments les plus revus » (YouTube) : vraie donnée d'audience
+    heat = []
+    for h in info.get("heatmap") or []:
+        try:
+            a, b = float(h["start_time"]) - offset, float(h["end_time"]) - offset
+            if b > 0:
+                heat.append({"start_time": max(0.0, a), "end_time": b, "value": float(h.get("value") or 0)})
+        except (KeyError, TypeError, ValueError):
+            continue
+    if heat:
+        (out_dir / "heatmap.json").write_text(json.dumps(heat))
+    # Commentaires horodatés (« 4:32 mdr ») — vidéos YouTube classiques
+    kind = detect_kind(url)
+    if kind in ("youtube", "youtube_live") and not info0["is_live"]:
+        try:
+            if progress:
+                progress(0.99, "Lecture des commentaires horodatés…")
+            coms = fetch_timestamp_comments(url, cookies, offset)
+            if coms:
+                (out_dir / "comments.json").write_text(json.dumps(coms, ensure_ascii=False))
+        except Exception as e:  # bonus, jamais bloquant
+            log.warning("Commentaires indisponibles : %s", e)
+
     meta = {
         "title": info.get("title") or info0["title"],
         "duration": info.get("duration") or info0["duration"],
@@ -165,8 +188,34 @@ def download(
         "tags": info0["tags"],
         "language": info.get("language"),
         "range_offset": offset,
+        "heatmap": bool(heat),
     }
     return {"path": path, "info": meta, "chat_path": chat_path}
+
+
+TS_RE = re.compile(r"(?<![\d:])(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d)(?![\d:])")
+
+
+def fetch_timestamp_comments(url: str, cookies: str | None, offset: float = 0.0, max_comments: int = 400) -> list[dict]:
+    """Commentaires populaires contenant un horodatage -> [{t, likes, text}]."""
+    import yt_dlp
+
+    opts = {
+        **_base_opts(cookies), "skip_download": True, "getcomments": True,
+        "extractor_args": {"youtube": {"max_comments": [str(max_comments), str(max_comments), "0", "0"],
+                                       "comment_sort": ["top"]}},
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    out = []
+    for c in info.get("comments") or []:
+        text = c.get("text") or ""
+        for m in TS_RE.finditer(text):
+            h, mm, ss = int(m.group(1) or 0), int(m.group(2)), int(m.group(3))
+            t = h * 3600 + mm * 60 + ss - offset
+            if t >= 0:
+                out.append({"t": t, "likes": int(c.get("like_count") or 0), "text": text[:200]})
+    return out
 
 
 def parse_youtube_live_chat(path: Path, offset: float = 0.0) -> list[dict]:

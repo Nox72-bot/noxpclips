@@ -103,24 +103,39 @@ def parse_json(text: str):
 
 
 RANK_SYSTEM = """Tu es un expert TikTok / YouTube Shorts / Reels qui sélectionne les extraits les plus viraux
-de lives et de vidéos. Tu notes chaque extrait honnêtement (0-100) selon 4 axes :
+de vidéos YouTube et de lives. Tu notes chaque extrait honnêtement (0-100) selon 4 axes :
 - viral : potentiel de vues (accroche immédiate, émotion, moment partageable, se comprend sans contexte)
 - funny : à quel point c'est drôle
 - drama : tension, clash, révélation, émotion forte
 - hype : moment épique, exploit, réaction folle
-Tu écris en FRANÇAIS un titre court et accrocheur (max 60 caractères), une accroche à afficher
+__GENRE__
+Tu écris en __LANG__ un titre court et accrocheur (max 60 caractères), une accroche à afficher
 à l'écran (max 7 mots, en MAJUSCULES, 1 emoji max), une description courte (1 phrase) et 5 hashtags
 pertinents. Tu peux proposer de raccourcir l'extrait (trim_start / trim_end en secondes à retirer au
 début / à la fin) pour démarrer directement sur l'action.
 Réponds UNIQUEMENT en JSON : {"clips":[{"id":..,"viral":..,"funny":..,"drama":..,"hype":..,
-"title":"..","hook":"..","description":"..","hashtags":["#.."],"reason":"pourquoi ce clip va marcher",
+"title":"..","hook":"..","description":"..","hashtags":["#.."],"reason":"pourquoi ce clip va marcher (en français)",
 "trim_start":0,"trim_end":0}]}"""
+
+GENRE_HINTS = {
+    "concept": ("Type de vidéo : concept YouTube entre potes (défis, jeux, réactions, style grandes chaînes "
+                "françaises). Privilégie les fous rires, réactions exagérées, retournements de situation, "
+                "phrases cultes et moments malaisants, avec une mise en place ET une chute compréhensibles "
+                "sans avoir vu la vidéo."),
+    "gta": ("Type de vidéo : GTA / GTA RP. Privilégie les courses-poursuites, crashs, fails physiques absurdes, "
+            "braquages, arrestations, trahisons et clashs RP, répliques cultes. L'action doit démarrer dès "
+            "la première seconde."),
+    "gaming": "Type de vidéo : gaming. Privilégie les actions spectaculaires, fails, rages et réactions fortes.",
+}
 
 
 def rank_clips(settings: dict, candidates: list[dict], *, genre: str, prompt: str,
-               source_title: str, engine: str) -> dict[str, dict]:
+               source_title: str, engine: str, lang: str = "fr") -> dict[str, dict]:
     """Retourne {id: {...}} pour les candidats évalués par le LLM."""
     out: dict[str, dict] = {}
+    system = (RANK_SYSTEM
+              .replace("__LANG__", "FRANÇAIS" if lang == "fr" else "ANGLAIS (English)")
+              .replace("__GENRE__", GENRE_HINTS.get(genre, "")))
     batch = 8 if engine == "ollama" else 12
     for i in range(0, len(candidates), batch):
         chunk = candidates[i:i + batch]
@@ -138,7 +153,7 @@ def rank_clips(settings: dict, candidates: list[dict], *, genre: str, prompt: st
             + "Extraits candidats :\n" + json.dumps(items, ensure_ascii=False)
         )
         try:
-            data = parse_json(chat(settings, RANK_SYSTEM, user, engine=engine))
+            data = parse_json(chat(settings, system, user, engine=engine))
             clips = data.get("clips", data) if isinstance(data, dict) else data
             for item in clips or []:
                 if isinstance(item, dict) and str(item.get("id")) in {c["id"] for c in chunk}:
@@ -158,3 +173,66 @@ def translate_lines(settings: dict, lines: list[str], target: str, engine: str) 
     if not isinstance(res, list) or len(res) != len(lines):
         raise ValueError("traduction incomplète")
     return [str(x) for x in res]
+
+
+LANG_CODES = {"français": "fr", "anglais": "en", "espagnol": "es", "allemand": "de", "italien": "it",
+              "portugais": "pt", "arabe": "ar", "néerlandais": "nl", "japonais": "ja"}
+
+
+def lang_code(name: str) -> str:
+    return LANG_CODES.get((name or "").lower(), (name or "")[:2].lower())
+
+
+def _mymemory(text: str, src: str, tgt: str) -> str:
+    """Traduction gratuite sans clé (MyMemory, ~5 000 caractères / jour)."""
+    r = httpx.get("https://api.mymemory.translated.net/get",
+                  params={"q": text[:480], "langpair": f"{src or 'en'}|{tgt}"}, timeout=20)
+    r.raise_for_status()
+    data = r.json()
+    out = (data.get("responseData") or {}).get("translatedText") or ""
+    if "MYMEMORY WARNING" in out.upper() or int(data.get("responseStatus") or 200) != 200:
+        raise RuntimeError("quota de traduction gratuite atteint pour aujourd'hui")
+    return out
+
+
+def translate_groups(settings: dict, lines: list[str], target: str, src: str | None) -> list[str]:
+    """Traduit des lignes de sous-titres en gardant leur nombre.
+
+    On regroupe les lignes en phrases (meilleure traduction), puis on répartit les mots traduits
+    sur les lignes d'origine. Utilise l'IA configurée, sinon le service gratuit MyMemory.
+    """
+    tgt = lang_code(target)
+    buckets: list[list[int]] = []
+    cur: list[int] = []
+    for i, line in enumerate(lines):
+        cur.append(i)
+        if line.rstrip().endswith((".", "!", "?", "…")) or len(cur) >= 4:
+            buckets.append(cur)
+            cur = []
+    if cur:
+        buckets.append(cur)
+    sentences = [" ".join(lines[i] for i in b) for b in buckets]
+    translated = None
+    engine = available_engine(settings)
+    if engine != "heuristic":
+        try:
+            translated = translate_lines(settings, sentences, target, engine)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Traduction IA impossible (%s) : %s", engine, e)
+    if translated is None:
+        translated = [_mymemory(x, src or "en", tgt) for x in sentences]
+    out = [""] * len(lines)
+    for b, tr in zip(buckets, translated):
+        toks = str(tr).split()
+        counts = [max(1, len(lines[i].split())) for i in b]
+        total = sum(counts)
+        pos = 0
+        for k, i in enumerate(b):
+            if k == len(b) - 1:
+                take = toks[pos:]
+            else:
+                n = max(1, round(len(toks) * counts[k] / total)) if pos < len(toks) else 0
+                take = toks[pos:pos + n]
+                pos += n
+            out[i] = " ".join(take)
+    return out

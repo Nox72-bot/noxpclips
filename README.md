@@ -29,6 +29,16 @@ Instagram Reels et YouTube Shorts depuis un calendrier.
 | Ajoute sous-titres animés (9 styles), accroche (3 styles), emojis IA, zoom auto, transitions, couleurs, nettoyage vocal, audio amélioré, logo | `ffmpeg` + `libass` + Pillow |
 | Publie / programme | API officielles YouTube, TikTok, Instagram, ou partage manuel en 1 tap depuis l'iPhone/iPad |
 
+**Langues** : vidéo en français → titres, accroches et sous-titres en français. Vidéo dans une autre
+langue → titres et accroches en anglais, **sous-titres toujours traduits en français** (désactivable).
+
+**Spécialités** :
+- *Concept YouTube* (défis entre potes, jeux, réactions) : repère les fous rires et cris (même sans parole),
+  les phrases cultes, et garde tout le groupe dans le cadre (fond flou) quand plusieurs personnes sont à l'écran.
+- *GTA / GTA RP* : courses-poursuites, crashs, fails physiques, braquages, arrestations, clashs RP.
+- Vidéos YouTube classiques : utilise la courbe **« Moments les plus revus »** de YouTube et les
+  **commentaires horodatés** (« 4:32 mdr ») — les vrais avis des spectateurs.
+
 Pas encore disponibles (affichés « Bientôt ») : motion design, B-roll IA, Auto SFX, doublage vocal,
 correction du contact visuel.
 
@@ -87,6 +97,11 @@ Pour des titres et un classement plus malins, dans **Réglages** :
 - **Groq** : clé gratuite sur [console.groq.com](https://console.groq.com/keys).
 
 En mode *Auto*, NOXPclips prend la première disponible. Ces IA servent aussi à **traduire les sous-titres**.
+
+**Si tu n'as qu'un iPad** (hébergement Hugging Face), Ollama n'est pas disponible : ajoute une **clé Gemini
+gratuite** dans Réglages. Elle améliore les titres et traduit les sous-titres en français sans limite
+pratique. Sans clé, la traduction passe par le service gratuit MyMemory (~5 000 caractères par jour,
+soit une dizaine de clips).
 
 ## Connecter TikTok, Instagram, YouTube
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 import queue
 import shutil
@@ -48,6 +49,7 @@ DEFAULT_OPTIONS = {
     "transitions": False,
     "color_correct": False,
     "translate_to": "",
+    "captions_fr": True,  # sous-titres toujours en français (traduits si la vidéo est dans une autre langue)
     "brand_logo": True,
     "split": True,  # False = pas de découpage : un seul clip sur toute la plage
 }
@@ -201,7 +203,13 @@ def process_project(pid: str) -> None:
     if genre == "auto":
         genre = guess_genre(meta, segments)
         meta["genre_detected"] = genre
-    signals = an.build_signals(duration, segments, loud, chat, opts.get("prompt", ""))
+    lang = "fr" if (meta.get("language") or "fr") == "fr" else "en"  # langue des titres / accroches
+    meta["text_language"] = lang
+    heatmap = json.loads((d / "heatmap.json").read_text()) if (d / "heatmap.json").exists() else []
+    comments = json.loads((d / "comments.json").read_text()) if (d / "comments.json").exists() else []
+    meta["audience_signals"] = {"heatmap": bool(heatmap), "comments": len(comments)}
+    signals = an.build_signals(duration, segments, loud, chat, opts.get("prompt", ""), genre=genre,
+                               heatmap=heatmap, comments=comments)
     max_clips = max(1, min(30, int(opts.get("max_clips") or 10)))
     if opts.get("split", True):
         cands = an.find_candidates(duration, segments, signals, length=opts.get("clip_length", "auto"),
@@ -225,15 +233,13 @@ def process_project(pid: str) -> None:
     if engine != "heuristic" and cands:
         _set(pid, "analyzing", 0.58, f"L'IA ({engine}) classe les meilleurs moments…")
         ranked = llm.rank_clips(settings, cands, genre=genre, prompt=opts.get("prompt", ""),
-                                source_title=meta.get("title", ""), engine=engine)
+                                source_title=meta.get("title", ""), engine=engine, lang=lang)
         if not ranked:
             meta["ai_engine_used"] = f"{engine} (échec → heuristiques)"
 
     wanted = [t for t in opts.get("clip_types") or [] if t in ("funny", "drama", "hype")]
     final = []
     for c in cands:
-        texts = an.fallback_texts(c, c["text"], genre=genre, source_title=meta.get("title", ""),
-                                  source_tags=meta.get("tags") or [])
         r = ranked.get(c["id"])
         scores = {k: round(v * 100) for k, v in c["scores"].items()}
         if r:
@@ -242,6 +248,12 @@ def process_project(pid: str) -> None:
                     scores[k] = round(0.6 * float(r.get(k, scores[k])) + 0.4 * scores[k])
                 except (TypeError, ValueError):
                     pass
+        # une seule catégorie fait foi : celle de l'IA si elle a noté le clip, sinon celle de l'analyse
+        cat = max(("funny", "drama", "hype"), key=lambda k: scores[k]) if r else c["category"]
+        c["category"] = cat
+        texts = an.fallback_texts(c, c["text"], genre=genre, source_title=meta.get("title", ""),
+                                  source_tags=meta.get("tags") or [], lang=lang)
+        if r:
             for k in ("title", "hook", "description", "reason"):
                 if isinstance(r.get(k), str) and r[k].strip():
                     texts[k] = r[k].strip()
@@ -259,7 +271,6 @@ def process_project(pid: str) -> None:
             except (TypeError, ValueError):
                 pass
         composite = 0.6 * scores["viral"] + 0.4 * max([scores[w] for w in wanted] or [scores["viral"]])
-        cat = max(("funny", "drama", "hype"), key=lambda k: scores[k])
         final.append({**c, "scores": scores, "category": cat, "composite": composite, **texts})
     final.sort(key=lambda c: c["composite"], reverse=True)
     final = final[:max_clips]
@@ -314,6 +325,11 @@ def transcribe_audio(wav: Path, settings: dict, opts: dict, duration: float, cb)
 
 def guess_genre(meta: dict, segments: list[dict]) -> str:
     text = (meta.get("title", "") + " " + " ".join(meta.get("tags") or [])).lower()
+    if re.search(r"\bgta\b|grand theft auto|gtarp|gta ?rp|los santos", text):
+        return "gta"
+    if re.search(r"concept|défi|defi|challenge|24 ?h|dernier (à|a|qui)|qui (sera|va)|tier ?list|"
+                 r"vs\b|contre \d+|on a test|j'ai test|nos? abonnés|blind ?test", text):
+        return "concept"
     for k in an.GAMES:
         if k.strip() in text:
             return "gaming"
@@ -346,12 +362,13 @@ def _render(clip: dict, project: dict, opts: dict, settings: dict, segments: lis
             pass
 
     translate_fn = None
-    target = o.get("translate_to")
-    if target:
-        engine = llm.available_engine(settings)
-        if engine != "heuristic":
-            def translate_fn(lines, engine=engine, target=target):
-                return llm.translate_lines(settings, lines, target, engine)
+    src_lang = (project.get("meta") or {}).get("language")
+    target = o.get("translate_to") or ("français" if o.get("captions_fr", True) else "")
+    if target and src_lang and llm.lang_code(target) == src_lang:
+        target = ""  # déjà dans la bonne langue
+    if target and src_lang:
+        def translate_fn(lines, target=target, src_lang=src_lang):
+            return llm.translate_groups(settings, lines, target, src_lang)
 
     out = d / "clips" / f"{clip['id']}.mp4"
     tmp = d / "clips" / f"{clip['id']}.tmp.mp4"
@@ -371,7 +388,8 @@ def _render(clip: dict, project: dict, opts: dict, settings: dict, segments: lis
     if srt.exists():
         shutil.copy(srt, out.with_suffix(".srt"))
     db.update("clips", clip["id"], status="done", file=out.name, thumb=thumb.name,
-              overrides={**(clip.get("overrides") or {}), "_duration": res["duration"]})
+              overrides={**(clip.get("overrides") or {}), "_duration": res["duration"],
+                         "_translation": f"{target}: {res['translation']}" if res.get("translation") else ""})
 
 
 _enc_ok: dict[str, bool] = {}
