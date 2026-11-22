@@ -356,9 +356,49 @@ async def reanalyze(pid: str, request: Request):
     opts.update({k: v for k, v in (body.get("options") or {}).items() if k in jobs.DEFAULT_OPTIONS})
     if body.get("retranscribe"):
         (jobs.pdir(pid) / "transcript.json").unlink(missing_ok=True)
+    (jobs.pdir(pid) / "layout.json").unlink(missing_ok=True)  # nouvelle détection de la facecam
     db.update("projects", pid, options=opts, status="queued", error=None, progress=0, message="En file d'attente")
     jobs.enqueue_project(pid)
     return {"ok": True}
+
+
+@app.get("/api/projects/{pid}/frame")
+def project_frame(pid: str, t: float = 0):
+    """Image de la vidéo source à l'instant t (pour dessiner la facecam)."""
+    d = jobs.pdir(pid)
+    src = d / "source.mp4"
+    if not src.exists():
+        raise HTTPException(404, "Vidéo source supprimée")
+    media = ff.probe(src)
+    t = max(0.0, min(float(t), max(0.0, media["duration"] - 0.5)))
+    out = d / f"frame_{int(t)}.jpg"
+    if not out.exists():
+        ff.grab_frame(src, t, out, width=960)
+    return FileResponse(out, headers={"Cache-Control": "no-cache"})
+
+
+@app.post("/api/projects/{pid}/rerender-all")
+async def rerender_all(pid: str, request: Request):
+    """Applique une mise en page (ex. facecam dessinée) à tout le projet et remonte tous les clips."""
+    p = db.get("projects", pid)
+    if not p:
+        raise HTTPException(404)
+    if not (jobs.pdir(pid) / "source.mp4").exists():
+        raise HTTPException(400, "La vidéo source a été supprimée : impossible de remonter les clips.")
+    body = await request.json()
+    new = {k: v for k, v in (body.get("options") or {}).items() if k in jobs.DEFAULT_OPTIONS}
+    opts = jobs.project_options(p)
+    opts.update(new)
+    db.update("projects", pid, options=opts)
+    clips = db.query("SELECT * FROM clips WHERE project_id=?", (pid,))
+    for c in clips:
+        ov = dict(c.get("overrides") or {})
+        for k in new:
+            ov.pop(k, None)  # le réglage du projet s'applique à tous
+        ov["_v"] = int(ov.get("_v", 0)) + 1
+        db.update("clips", c["id"], overrides=ov, status="queued")
+        jobs.enqueue_clip(c["id"])
+    return {"count": len(clips)}
 
 
 @app.get("/media/{pid}/{path:path}")

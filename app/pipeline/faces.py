@@ -21,7 +21,7 @@ def _detector():
     return _cascade
 
 
-def _frame(src: Path, t: float, width: int = 640):
+def _frame(src: Path, t: float, width: int = 960):
     raw = subprocess.run(
         ["ffmpeg", "-v", "error", "-ss", f"{max(0, t):.2f}", "-i", str(src), "-frames:v", "1",
          "-vf", f"scale={width}:-2", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
@@ -48,8 +48,11 @@ def detect_faces(src: Path, times: list[float]) -> list[list[tuple[float, float,
         if img is None:
             res.append([])
             continue
+        import cv2
+
+        img = cv2.equalizeHist(img)  # webcams sombres / éclairage RGB des streamers
         h, w = img.shape
-        faces = det.detectMultiScale(img, scaleFactor=1.1, minNeighbors=6, minSize=(max(18, w // 40),) * 2)
+        faces = det.detectMultiScale(img, scaleFactor=1.08, minNeighbors=5, minSize=(max(20, w // 48),) * 2)
         res.append([(x / w, y / h, fw / w, fh / h) for (x, y, fw, fh) in faces])
     return res
 
@@ -59,32 +62,45 @@ def analyze_layout(src: Path, duration: float, width: int, height: int, genre: s
     portrait = height > width
     if portrait:
         return {"mode": "fill", "cx": 0.5}
-    n = 14
+    n = 18
     times = [duration * (i + 0.5) / n for i in range(n)]
     found = detect_faces(src, times)
     frames_with = [f for f in found if f]
-    if not found or len(frames_with) < max(3, int(0.45 * len(found))):
+    if not found or len(frames_with) < max(3, int(0.35 * len(found))):
         return {"mode": "fill" if genre in ("gaming", "gta") else "fit", "cx": 0.5}
     # Plusieurs personnes bien écartées (vidéo concept entre potes, plateau) : on garde tout le monde
     wide_groups = sum(1 for f in frames_with
                       if len(f) >= 2 and max(b[0] + b[2] / 2 for b in f) - min(b[0] + b[2] / 2 for b in f) > 0.35)
     if wide_groups >= max(3, int(0.4 * len(frames_with))):
         return {"mode": "fit", "cx": 0.5, "group": True}
-    # on garde le plus grand visage de chaque image
-    main = [max(f, key=lambda b: b[2] * b[3]) for f in frames_with]
-    cxs = np.array([b[0] + b[2] / 2 for b in main])
-    cys = np.array([b[1] + b[3] / 2 for b in main])
-    ws = np.array([b[2] for b in main])
-    cx, cy, fw = float(np.median(cxs)), float(np.median(cys)), float(np.median(ws))
-    stable = float(np.std(cxs)) < 0.08 and float(np.std(cys)) < 0.08
-    corner = (cx < 0.33 or cx > 0.67) and (cy < 0.38 or cy > 0.62)
-    if stable and corner and fw < 0.16:
+    # Facecam : petit visage qui reste au même endroit, n'importe où hors du centre de l'image
+    # (coin, côté gauche/droit à mi-hauteur…). On cherche le groupe de visages le plus stable.
+    small = [b for f in frames_with for b in f if b[2] < 0.2]
+    best = None
+    for ref in small:
+        rx, ry = ref[0] + ref[2] / 2, ref[1] + ref[3] / 2
+        near = [b for b in small if abs(b[0] + b[2] / 2 - rx) < 0.05 and abs(b[1] + b[3] / 2 - ry) < 0.06]
+        if best is None or len(near) > len(best):
+            best = near
+    if best and len(best) >= max(3, int(0.3 * len(found))):
+        cx = float(np.median([b[0] + b[2] / 2 for b in best]))
+        cy = float(np.median([b[1] + b[3] / 2 for b in best]))
+        fw = float(np.median([b[2] for b in best]))
+        off_center = abs(cx - 0.5) > 0.18 or abs(cy - 0.5) > 0.22
+    else:
+        off_center = False
+    if off_center:
         # facecam : la webcam fait ~3,2x la largeur du visage
         bw = min(0.45, fw * 3.2)
         bh = min(0.5, bw * width / height * 0.75)
         bx = min(max(0.0, cx - bw / 2), 1 - bw)
         by = min(max(0.0, cy - bh / 2), 1 - bh)
-        return {"mode": "split", "cam": [bx, by, bw, bh], "cx": 0.5}
+        return {"mode": "split", "cam": [round(bx, 4), round(by, 4), round(bw, 4), round(bh, 4)], "cx": 0.5}
+    # sinon : visage principal suivi (vlog, podcast…)
+    main = [max(f, key=lambda b: b[2] * b[3]) for f in frames_with]
+    cx = float(np.median([b[0] + b[2] / 2 for b in main]))
+    if genre in ("gaming", "gta") and float(np.median([b[2] for b in main])) < 0.12:
+        return {"mode": "fill", "cx": 0.5}  # petits visages instables = personnages du jeu
     return {"mode": "fill", "cx": cx}
 
 

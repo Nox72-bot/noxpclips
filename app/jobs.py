@@ -36,6 +36,7 @@ DEFAULT_OPTIONS = {
     "ai_engine": "",  # vide = réglage global
     "layout_mode": "",  # vide = auto ; fill | fit | split
     "cam_corner": "top-left",
+    "cam_box": None,  # [x, y, largeur, hauteur] (0..1) de la facecam, dessinée par l'utilisateur
     "captions": True,
     "caption_style": "neon",
     "caption_position": "middle",
