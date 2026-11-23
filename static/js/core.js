@@ -40,6 +40,8 @@ const P = {
   motion: '<circle cx="9" cy="15" r="5"/><path d="M13.5 6.5a6 6 0 0 1 4 4M16 3a9 9 0 0 1 5 5"/>',
   sfx: '<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/>',
   play: '<path d="M7 4v16l13-8Z"/>',
+  dleft: '<path d="m12 6-6 6 6 6M19 6l-6 6 6 6"/>',
+  dright: '<path d="m12 6 6 6-6 6M5 6l6 6-6 6"/>',
   panel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
   plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0Z"/><path d="M12 17v4"/>',
   bot: '<rect x="4" y="8" width="16" height="12" rx="4"/><path d="M12 4v4M9 13h.01M15 13h.01M9.5 17h5"/><circle cx="12" cy="3.5" r="1"/>',

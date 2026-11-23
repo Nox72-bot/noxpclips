@@ -35,7 +35,7 @@ const TABS = [
 const brandHtml = `<a class="brand" href="#/"><div class="brand-mark">N</div><div class="brand-name">NOXP<span>clips</span></div></a>`;
 
 function shell() {
-  $("#sidebar").innerHTML = `<div class="side-head">${brandHtml}<button class="icon-btn side-toggle" id="sidetoggle" aria-label="Replier le menu" title="Replier / déplier le menu">${icon("panel")}</button></div>` + NAV.map((n) => {
+  $("#sidebar").innerHTML = `<div class="side-head">${brandHtml}<button class="side-toggle" id="sidetoggle" aria-label="Replier le menu" title="Replier / déplier le menu">${icon("dleft")}</button></div>` + NAV.map((n) => {
     if (n.label) return `<div class="nav-label">${n.label}</div>`;
     if (n.spacer) return `<div class="spacer"></div>`;
     return `<a class="nav-item" data-path="${n.path}" href="#${n.path}" title="${n.text}">${icon(n.icon)}<span>${n.text}</span></a>`;
@@ -44,6 +44,7 @@ function shell() {
   const setCollapsed = (on) => {
     document.documentElement.classList.toggle("nav-collapsed", on);
     $("#sidetoggle").setAttribute("aria-label", on ? "Déplier le menu" : "Replier le menu");
+    $("#sidetoggle").innerHTML = icon(on ? "dright" : "dleft");
     try { localStorage.setItem("noxp-nav-collapsed", on ? "1" : ""); } catch { /* stockage indisponible */ }
   };
   let saved = false;
