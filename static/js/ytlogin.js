@@ -9,6 +9,12 @@ const TEXTS = {
     done: "Quand tu vois l'accueil YouTube avec ta photo de profil",
     name: "Nom de ta chaîne (pour t'y retrouver)",
   },
+  instagram: {
+    title: "Connecter Instagram", icon: "instagram",
+    intro: "Connecte-toi <b>une fois</b> à Instagram avec ton identifiant et ton mot de passe, dans un navigateur qui tourne sur ton serveur NOXPclips. Ensuite NOXPclips publie tes Reels tout seul, en public, à l'heure prévue.",
+    done: "Quand tu vois ton fil Instagram (tu es connecté)",
+    name: "Ton pseudo Instagram (pour t'y retrouver)",
+  },
   tiktok: {
     title: "Connecter TikTok", icon: "tiktok",
     intro: "Connecte-toi <b>une fois</b> à TikTok dans un navigateur qui tourne sur ton serveur NOXPclips. Ensuite NOXPclips publie tes clips tout seul, en public, à l'heure prévue.",

@@ -31,6 +31,7 @@ LOGIN_URL = "https://accounts.google.com/ServiceLogin?service=youtube&continue=h
 TARGETS = {
     "youtube": {"label": "YouTube", "url": LOGIN_URL},
     "tiktok": {"label": "TikTok", "url": "https://www.tiktok.com/login"},
+    "instagram": {"label": "Instagram", "url": "https://www.instagram.com/accounts/login/"},
 }
 # Pris par le robot de publication pendant qu'il utilise le profil du navigateur
 browser_lock = threading.Lock()
@@ -212,6 +213,12 @@ def finish(target: str = "youtube", name: str = "") -> dict:
         _stop_procs()
         _set("idle")
         name = (name or "").strip()[:60]
+        if target == "instagram":
+            if "sessionid" not in {c.name for c in profile_cookies("instagram.com")}:
+                raise RuntimeError("Aucune connexion Instagram trouvée : relance la connexion et va jusqu'à ton fil "
+                                   "Instagram avec ton compte avant d'appuyer sur « J'ai terminé ».")
+            acc = _save_account("instagram", "browser", name or "Mon compte Instagram", "", {"method": "browser"})
+            return {"ok": True, "account": acc["name"]}
         if target == "tiktok":
             if not {c.name for c in profile_cookies("tiktok.com")} & {"sessionid", "sessionid_ss", "sid_tt"}:
                 raise RuntimeError("Aucune connexion TikTok trouvée : relance la connexion et va jusqu'à ton fil "
