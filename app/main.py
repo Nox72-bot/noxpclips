@@ -11,11 +11,11 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import autopilot, botchat, db, jobs, scheduler, scout, ytlogin
+from . import autopilot, botchat, db, jobs, livebrowser, scheduler, scout, ytlogin
 from .config import (BRAND_DIR, DATA_DIR, FONTS_DIR, PASSWORD, PROJECTS_DIR, SECRET_KEY, SECRET_SETTING_KEYS, STATIC_DIR,
                      UPLOADS_DIR)
 from .pipeline import analyze as an
@@ -180,6 +180,62 @@ async def upload_cookies(file: UploadFile = File(...)):
 def delete_cookies():
     (DATA_DIR / "cookies.txt").unlink(missing_ok=True)
     db.set_settings({"ytdlp_cookies": ""})
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ Connexion rapide (navigateur dans NOXPclips)
+
+def _live(fn, *a):
+    try:
+        return fn(*a)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/live/start")
+async def live_start(request: Request):
+    body = await _json(request)
+    return _live(livebrowser.start, str(body.get("target") or ""))
+
+
+@app.get("/api/live/status")
+def live_status():
+    return livebrowser.status()
+
+
+@app.get("/api/live/shot")
+def live_shot():
+    img = livebrowser.screenshot()
+    if not img:
+        raise HTTPException(404)
+    return Response(img, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/live/action")
+async def live_action(request: Request):
+    body = await _json(request)
+    return await run_in_threadpool(_live, livebrowser.act, body)
+
+
+@app.post("/api/live/login")
+async def live_login(request: Request):
+    body = await _json(request)  # le mot de passe n'est ni enregistré ni journalisé
+    return await run_in_threadpool(_live, livebrowser.autologin, str(body.get("username") or "").strip(),
+                                   str(body.get("password") or ""))
+
+
+@app.post("/api/live/finish")
+async def live_finish(request: Request):
+    body = await _json(request)
+    try:
+        return await run_in_threadpool(livebrowser.finish, str(body.get("name") or ""))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e)[:400])
+
+
+@app.post("/api/live/close")
+def live_close():
+    livebrowser.close()
     return {"ok": True}
 
 

@@ -464,3 +464,9 @@ code, .code { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; fon
   .ap-post > .grow { flex: 1 1 60%; }
   .ap-actions { width: 100%; justify-content: flex-end; margin-top: -4px; }
 }
+
+/* Connexion rapide : page du réseau en direct */
+.live-wrap { position: relative; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; width: min(100%, calc(46dvh * 4 / 3)); margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.live-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.live-tools { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.live-tools .input { min-width: 180px; }
