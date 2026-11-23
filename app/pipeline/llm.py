@@ -209,7 +209,7 @@ pertinents. Tu peux proposer de raccourcir l'extrait (trim_start / trim_end en s
 début / à la fin) pour démarrer directement sur l'action.
 Réponds UNIQUEMENT en JSON : {"clips":[{"id":..,"viral":..,"funny":..,"drama":..,"hype":..,
 "title":"..","hook":"..","description":"..","hashtags":["#.."],"reason":"pourquoi ce clip va marcher (en français)",
-"trim_start":0,"trim_end":0}]}"""
+"trend":"tendance actuelle exploitée par l'extrait, ou vide","trend_fit":0,"trim_start":0,"trim_end":0}]}"""
 
 GENRE_HINTS = {
     "concept": ("Type de vidéo : concept YouTube entre potes (défis, jeux, réactions, style grandes chaînes "
@@ -223,8 +223,26 @@ GENRE_HINTS = {
 }
 
 
+def _trends_block(trends: dict | None) -> str:
+    if not trends:
+        return ""
+    parts = []
+    if trends.get("hashtags"):
+        parts.append("hashtags : " + " ".join(trends["hashtags"][:10]))
+    if trends.get("keywords"):
+        parts.append("sujets : " + ", ".join(trends["keywords"][:15]))
+    if trends.get("formats"):
+        parts.append("formats qui marchent : " + " | ".join(trends["formats"][:5]))
+    if trends.get("web"):
+        parts.append("recherches Google du jour : " + ", ".join(trends["web"][:15]))
+    return ("TENDANCES ACTUELLES (TikTok / web, cette semaine) — un extrait qui colle à une tendance a beaucoup plus "
+            "de chances d'être poussé par l'algorithme : augmente sa note viral, indique la tendance dans « trend », "
+            "sa pertinence 0-100 dans « trend_fit » (0 si aucun lien réel, n'invente pas), et reprends les hashtags "
+            "tendance pertinents. " + " ; ".join(parts) + "\n")
+
+
 def rank_clips(settings: dict, candidates: list[dict], *, genre: str, prompt: str,
-               source_title: str, engine: str, lang: str = "fr") -> dict[str, dict]:
+               source_title: str, engine: str, lang: str = "fr", trends: dict | None = None) -> dict[str, dict]:
     """Retourne {id: {...}} pour les candidats évalués par le LLM."""
     out: dict[str, dict] = {}
     system = (RANK_SYSTEM
@@ -244,6 +262,7 @@ def rank_clips(settings: dict, candidates: list[dict], *, genre: str, prompt: st
         user = (
             f"Vidéo source : « {source_title} »\nCatégorie : {genre}\n"
             + (f"Demande du créateur : {prompt}\n" if prompt else "")
+            + _trends_block(trends)
             + "Extraits candidats :\n" + json.dumps(items, ensure_ascii=False)
         )
         try:

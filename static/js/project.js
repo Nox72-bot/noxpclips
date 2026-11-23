@@ -10,6 +10,23 @@ const ENGINE_NAMES = { heuristic: "NOXP Local (heuristiques)", ollama: "Ollama (
 
 function scoreCls(s) { return s >= 85 ? "hi" : s >= 72 ? "mid" : "lo"; }
 
+function trendsPanel(t, clips) {
+  if (!t) return "";
+  const n = clips.filter((c) => (c.scores || {}).trend_label).length;
+  const tags = (t.hashtags || []).slice(0, 10).map((h) => `<span class="chip sm" style="pointer-events:none">${esc(h)}</span>`).join("");
+  const tiktok = (t.sources || []).some((s) => s.startsWith("TikTok"));
+  return `<details class="card flat small" style="margin-bottom:14px">
+    <summary style="cursor:pointer"><b>📈 Tendances du moment</b> · ${n} clip${n > 1 ? "s" : ""} colle${n > 1 ? "nt" : ""} à une tendance
+      ${t.title_match && t.title_match.length ? ` · la vidéo parle de <b>${esc(t.title_match.join(", "))}</b>` : ""}</summary>
+    <div class="stack" style="margin-top:10px;gap:10px">
+      ${tags ? `<div class="chips">${tags}</div>` : ""}
+      ${(t.formats || []).length ? `<div><b>Formats qui marchent :</b><ul style="margin:4px 0 0;padding-left:18px">${t.formats.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></div>` : ""}
+      ${(t.web || []).length ? `<div class="muted"><b>Recherches Google du jour :</b> ${esc(t.web.slice(0, 10).join(" · "))}</div>` : ""}
+      <div class="faint">Sources : ${esc((t.sources || []).join(", ") || "formats habituels de la niche (hors ligne)")}</div>
+      ${!tiktok ? `<div style="color:var(--warn)">Pour les tendances TikTok en direct, ajoute ta clé Gemini gratuite dans Réglages.${(t.errors || []).length ? " Détail : " + esc(t.errors.join(" | ")) : ""}</div>` : ""}
+    </div></details>`;
+}
+
 function clipCard(c) {
   const busy = c.status === "queued" || c.status === "rendering";
   const err = c.status === "error";
@@ -24,7 +41,8 @@ function clipCard(c) {
     </div>
     <div class="clip-body">
       <div class="row wrap" style="gap:6px"><span class="pill cat-${c.category}">${esc(c.category_label)}</span>
-        ${c.score >= 85 ? '<span class="pill cat-viral">🔥 Sûr de marcher</span>' : ""}</div>
+        ${c.score >= 85 ? '<span class="pill cat-viral">🔥 Sûr de marcher</span>' : ""}
+        ${s.trend_label ? `<span class="pill free" title="Colle à une tendance actuelle">📈 ${esc(s.trend_label)}</span>` : ""}</div>
       <div class="clip-title">${esc(c.title)}</div>
       ${c.hook ? `<div class="small" style="color:var(--accent);font-weight:650">« ${esc(c.hook)} »</div>` : ""}
       <div class="scores-mini"><span>😂 <b>${s.funny ?? "-"}</b></span><span>🎭 <b>${s.drama ?? "-"}</b></span><span>⚡ <b>${s.hype ?? "-"}</b></span><span class="faint">${fmtClock(c.start)} → ${fmtClock(c.end)}</span></div>
@@ -96,6 +114,7 @@ export async function renderProject(view, { id }) {
         <span>📐 ${esc({ full: "Gameplay entier", split: "Facecam + jeu recadré", fill: "Recadrage 9:16", fit: "Fond flou" }[(p.options.layout_mode || (meta.layout || {}).mode)] || "Auto")}</span>
       </div>
       ${meta.warning ? `<div class="card flat small" style="border-color:#ffb02055;color:var(--warn);margin-bottom:14px">${esc(meta.warning)}</div>` : ""}
+      ${trendsPanel(meta.trends, p.clips)}
       <div class="filters">${FILTERS.map(([k, l]) => `<button class="chip sm ${k === filter ? "on" : ""}" data-f="${k}">${l} <span class="faint">${k === "all" ? p.clips.length : p.clips.filter((c) => (k === "top" ? c.score >= 80 : c.category === k)).length}</span></button>`).join("")}</div>
       <div class="clips-grid">${clips.map(clipCard).join("") || `<div class="empty" style="grid-column:1/-1">Aucun clip dans cette catégorie.</div>`}</div>`;
     $$("[data-f]").forEach((b) => (b.onclick = () => { filter = b.dataset.f; draw(); }));
@@ -219,7 +238,8 @@ function reanalyzeModal(p, reload) {
     </div>
     <p class="muted" style="margin-top:16px">Types de clips</p><div class="chips">${CLIP_TYPES.map(([v, e, l]) => `<button class="chip sm ${o.clip_types.includes(v) ? "on" : ""}" data-t="${v}">${e} ${l}</button>`).join("")}</div>
     <label class="field" style="margin-top:12px">Moments à inclure<textarea class="input" id="prompt" rows="2">${esc(o.prompt || "")}</textarea></label>
-    <label class="row small" style="margin-top:12px;gap:8px">${toggle("retr", false)} Refaire aussi la transcription (si la langue était mal détectée)</label>
+    <label class="row small" style="margin-top:12px;gap:8px">${toggle("rtrends", o.trends !== false)} 📈 Suivre les tendances TikTok du moment</label>
+    <label class="row small" style="margin-top:8px;gap:8px">${toggle("retr", false)} Refaire aussi la transcription (si la langue était mal détectée)</label>
     <div class="modal-foot">
       <button class="btn" data-close>Annuler</button>
       ${p.clips.length ? `<button class="btn" id="layoutonly">${icon("eye", "sm")} Mise en page seule (garder les clips)</button>` : ""}
@@ -295,7 +315,7 @@ function reanalyzeModal(p, reload) {
   $("#go", m.el).onclick = async () => {
     const options = { genre: $("#genre", m.el).value, clip_length: $("#clip_length", m.el).value, max_clips: +$("#max_clips", m.el).value,
       ai_engine: $("#ai_engine", m.el).value, prompt: $("#prompt", m.el).value, clip_types: $$("[data-t].on", m.el).map((b) => b.dataset.t),
-      ...layoutOptions() };
+      trends: $("#rtrends", m.el).checked, ...layoutOptions() };
     if (!options.clip_types.length) options.clip_types = ["viral"];
     try {
       await api(`/api/projects/${p.id}/reanalyze`, { method: "POST", body: { options, retranscribe: $("#retr", m.el).checked } });
