@@ -214,7 +214,7 @@ export function openPost(post, onChange) {
       <div class="stack">
         <div><b>${esc(c.title || "Clip")}</b><div class="row small muted" style="margin-top:4px"><span class="status ${post.status}">${STATUS_LABELS[post.status] || post.status}</span>
           ${post.account_name ? esc(post.account_name) : "Publication manuelle"}</div></div>
-        ${post.error ? `<div class="small" style="color:var(--danger)">${esc(post.error)}</div>` : ""}
+        ${post.error ? `<div class="small" style="color:var(--danger)">${esc(post.error).replace(/\(capture : ([\w.-]+\.png)\)/, '(<a href="/api/browser-shots/$1" target="_blank" style="text-decoration:underline">voir la capture</a>)')}</div>` : ""}
         ${post.result && post.result.note ? `<div class="small muted">${esc(post.result.note)}</div>` : ""}
         ${url ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">${icon("link", "sm")} Voir la publication</a>` : ""}
         <label class="field">Date et heure<input type="datetime-local" class="input" id="when" value="${toLocalInput(post.scheduled_at)}" ${editable ? "" : "disabled"}></label>

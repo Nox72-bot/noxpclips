@@ -187,6 +187,10 @@ def fresh_token(account: dict, settings: dict) -> str:
 
 def publish(post: dict, clip: dict, account: dict, video: Path, settings: dict) -> dict:
     p = account["platform"]
+    if (account.get("tokens") or {}).get("method") == "browser":  # connexion par navigateur (sans API)
+        from .browser_post import publish as browser_publish
+
+        return browser_publish(post, clip, account, video)
     token = fresh_token(account, settings)
     if p == "youtube":
         return _youtube(post, clip, token, video)

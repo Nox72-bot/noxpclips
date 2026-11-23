@@ -9,6 +9,7 @@ import traceback
 from . import db
 from .config import PROJECTS_DIR
 from .social import platforms
+from .social.browser_post import BrowserBusy
 
 log = logging.getLogger("noxp.scheduler")
 _started = False
@@ -41,7 +42,8 @@ def tick() -> None:
              "WHERE status='scheduled_on_platform' AND scheduled_at<=?", (now,))
     # YouTube : on envoie tout de suite les posts lointains (YouTube publiera à l'heure dite,
     # même si NOXPclips est éteint)
-    early = db.query("SELECT * FROM posts WHERE status='scheduled' AND platform='youtube' AND scheduled_at>?",
+    early = db.query("SELECT * FROM posts WHERE status='scheduled' AND platform='youtube' AND scheduled_at>? "
+                     "AND account_id NOT IN (SELECT id FROM accounts WHERE tokens LIKE '%\"method\": \"browser\"%')",
                      (now + 20 * 60,))
     due = db.query("SELECT * FROM posts WHERE status='scheduled' AND scheduled_at<=? ORDER BY scheduled_at",
                    (now,))
@@ -68,6 +70,8 @@ def publish_post(post_id: str) -> dict:
             res = platforms.publish(post, clip, account, video, db.get_settings())
             db.update("posts", post_id, status=res.get("status", "published"), result=res,
                       published_at=time.time() if res.get("status") == "published" else None)
+        except BrowserBusy as e:  # navigateur occupé (connexion en cours) : nouvel essai au prochain passage
+            db.update("posts", post_id, status="scheduled", error=str(e))
         except Exception as e:  # noqa: BLE001
             log.warning("Publication échouée %s : %s", post_id, e)
             db.update("posts", post_id, status="failed", error=str(e)[:1500])

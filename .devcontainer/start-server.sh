@@ -13,6 +13,8 @@ export PATH="$HOME/.deno/bin:$HOME/.local/bin:$PATH"
 if ! command -v deno >/dev/null; then
   curl -fsSL https://deno.land/install.sh | sh -s -- -y > /dev/null 2>&1 || echo "⚠️ Deno non installé"
 fi
+# Robot de publication (navigateur) : composant ajouté après la création du Codespace
+python -c "import playwright" 2>/dev/null || pip install --user -q "playwright>=1.45" || true
 # yt-dlp suit les changements de YouTube : on prend toujours la dernière version
 pip install --user -q -U "yt-dlp[default]" 2>/dev/null || true
 pkill -f "supervise.sh" 2>/dev/null || true
