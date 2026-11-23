@@ -12,8 +12,9 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
-from . import db, jobs, scheduler, scout, ytlogin
+from . import botchat, db, jobs, scheduler, scout, ytlogin
 from .config import (BRAND_DIR, DATA_DIR, FONTS_DIR, PASSWORD, PROJECTS_DIR, SECRET_KEY, SECRET_SETTING_KEYS, STATIC_DIR,
                      UPLOADS_DIR)
 from .pipeline import analyze as an
@@ -215,6 +216,26 @@ def scout_list(all: bool = False):
     return {"status": scout.status(), "items": scout.listing(niche_only=not all), "last_run": data.get("last_run", 0),
             "runs": data.get("runs", [])[-5:], "tags": scout.niche_tags(s), "auto": bool(s.get("scout_auto")),
             "min_views": int(s.get("scout_min_views") or 20000)}
+
+
+@app.get("/api/bot")
+def bot_history():
+    return {"messages": botchat.load(), "status": scout.status()}
+
+
+@app.post("/api/bot/chat")
+async def bot_chat(request: Request):
+    body = await _json(request)
+    try:
+        return await run_in_threadpool(botchat.chat, str(body.get("message") or ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/bot")
+def bot_clear():
+    botchat.clear()
+    return {"ok": True}
 
 
 @app.post("/api/scout/run")
@@ -611,7 +632,7 @@ def oauth_start(platform: str, request: Request):
     try:
         url = platforms.auth_url(platform, db.get_settings(), base_url(request), state)
     except platforms.PublishError as e:
-        return RedirectResponse(f"/#/accounts?error={_q(str(e))}")
+        return RedirectResponse(f"/#/connectors?error={_q(str(e))}")
     return RedirectResponse(url)
 
 
@@ -626,15 +647,15 @@ def oauth_callback(platform: str, request: Request, code: str = "", state: str =
                    error_description: str = ""):
     st = _oauth_states.pop(state, None)
     if error:
-        return RedirectResponse(f"/#/accounts?error={_q(error_description or error)}")
+        return RedirectResponse(f"/#/connectors?error={_q(error_description or error)}")
     if not st or st[0] != platform or time.time() - st[1] > 900:
-        return RedirectResponse(f"/#/accounts?error={_q('Session de connexion expirée, réessaie.')}")
+        return RedirectResponse(f"/#/connectors?error={_q('Session de connexion expirée, réessaie.')}")
     try:
         acc = platforms.exchange_code(platform, db.get_settings(), base_url(request), code)
     except Exception as e:  # noqa: BLE001
         log.warning("OAuth %s : %s", platform, e)
-        return RedirectResponse(f"/#/accounts?error={_q(str(e))}")
-    return RedirectResponse(f"/#/accounts?connected={_q(acc['name'])}")
+        return RedirectResponse(f"/#/connectors?error={_q(str(e))}")
+    return RedirectResponse(f"/#/connectors?connected={_q(acc['name'])}")
 
 
 # ------------------------------------------------------------------ Publications / calendrier
