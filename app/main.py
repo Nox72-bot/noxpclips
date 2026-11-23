@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, jobs, scheduler
+from . import db, jobs, scheduler, ytlogin
 from .config import (BRAND_DIR, DATA_DIR, FONTS_DIR, PASSWORD, PROJECTS_DIR, SECRET_KEY, SECRET_SETTING_KEYS, STATIC_DIR,
                      UPLOADS_DIR)
 from .pipeline import analyze as an
@@ -177,6 +177,29 @@ def delete_cookies():
     return {"ok": True}
 
 
+@app.get("/api/youtube-login")
+def youtube_login_status():
+    return ytlogin.status()
+
+
+@app.post("/api/youtube-login/start")
+def youtube_login_start():
+    return ytlogin.start()
+
+
+@app.post("/api/youtube-login/finish")
+def youtube_login_finish():
+    try:
+        return ytlogin.finish()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e)[:400])
+
+
+@app.post("/api/youtube-login/stop")
+def youtube_login_stop():
+    return ytlogin.stop()
+
+
 @app.post("/api/brand/logo")
 async def upload_logo(file: UploadFile = File(...)):
     ext = Path(file.filename or "logo.png").suffix.lower() or ".png"
@@ -225,7 +248,7 @@ def _friendly(msg: str) -> str:
     detail = " ".join(msg.replace("ERROR: ", "").split())[:260]
     if "sign in to confirm" in low or "not a bot" in low:
         return ("YouTube bloque le serveur (anti-robot), même après plusieurs tentatives. Solutions : "
-                "un lien Twitch (VOD), un fichier cookies.txt dans Réglages > Téléchargement, "
+                "Réglages > Téléchargement > « Se connecter à YouTube », un lien Twitch (VOD), "
                 f"ou « Importer un fichier ». Détail technique : {detail}")
     if "private" in low:
         return "Cette vidéo est privée."
