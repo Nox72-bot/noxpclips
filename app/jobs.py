@@ -56,6 +56,7 @@ DEFAULT_OPTIONS = {
     "split": True,  # False = pas de découpage : un seul clip sur toute la plage
     "progress_bar": True,  # barre de progression (incite à regarder jusqu'au bout)
     "trends": True,  # suivre les tendances TikTok / web actuelles pour choisir les clips
+    "autopost": True,  # pilote automatique : programmer les meilleurs clips sur les comptes connectés
 }
 
 
@@ -337,6 +338,9 @@ def process_project(pid: str) -> None:
     db.update("projects", pid, meta=meta)
 
     # 5. Création des clips + rendu
+    # nouvelle analyse : les anciens clips disparaissent, leurs posts pas encore publiés aussi
+    db.query("DELETE FROM posts WHERE status IN ('scheduled','reminder','due','failed') AND clip_id IN "
+             "(SELECT id FROM clips WHERE project_id=?)", (pid,))
     db.query("DELETE FROM clips WHERE project_id=?", (pid,))
     clips = []
     for rank, c in enumerate(final, 1):
@@ -365,6 +369,14 @@ def process_project(pid: str) -> None:
             log.error("Rendu clip échoué: %s", traceback.format_exc())
             db.update("clips", rec["id"], status="error", error=str(e)[:2000])
     _set(pid, "done", 1.0, f"{len(clips)} clips prêts")
+    try:  # pilote automatique : les meilleurs clips partent dans le planning
+        from . import autopilot
+
+        n = autopilot.on_project_done(db.get("projects", pid))
+        if n:
+            _set(pid, "done", 1.0, f"{len(clips)} clips prêts · {n} posts programmés automatiquement")
+    except Exception:  # noqa: BLE001
+        log.error("Pilote automatique : %s", traceback.format_exc())
 
 
 WHISPER_FALLBACK = ["large-v3-turbo", "medium", "small", "base", "tiny"]

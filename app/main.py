@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import logging
 import secrets
 import shutil
@@ -14,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import botchat, db, jobs, scheduler, scout, ytlogin
+from . import autopilot, botchat, db, jobs, scheduler, scout, ytlogin
 from .config import (BRAND_DIR, DATA_DIR, FONTS_DIR, PASSWORD, PROJECTS_DIR, SECRET_KEY, SECRET_SETTING_KEYS, STATIC_DIR,
                      UPLOADS_DIR)
 from .pipeline import analyze as an
@@ -373,9 +374,58 @@ def upload_thumb(name: str):
     return FileResponse(p)
 
 
+QUICK_OPTIONS = {"split": True, "captions": True, "hook": True, "auto_zoom": True, "ai_emojis": True,
+                 "color_correct": True, "progress_bar": True, "trends": True, "autopost": True}
+
+
+@app.get("/api/autopilot")
+def autopilot_get():
+    ov = autopilot.overview()
+    ov["posts"] = [_post_view(p) for p in ov["posts"]]
+    s = db.get_settings()
+    ov["ai"] = bool(s.get("gemini_api_key") or s.get("groq_api_key"))
+    return ov
+
+
+@app.put("/api/autopilot")
+async def autopilot_put(request: Request):
+    body = await _json(request)
+    cfg = autopilot.config()
+    for k in autopilot.DEFAULT:
+        if k in body:
+            cfg[k] = body[k]
+    cfg["times"] = [t for t in (cfg.get("times") or []) if isinstance(t, str) and ":" in t][:8]
+    db.set_settings({"autopilot": cfg})
+    return autopilot_get()
+
+
+@app.post("/api/autopilot/fill")
+def autopilot_fill():
+    return {"count": autopilot.fill_now()}
+
+
+@app.post("/api/projects/quick")
+async def quick_projects(request: Request):
+    """Pilote automatique : une ou plusieurs vidéos → clips → posts programmés, sans réglage."""
+    body = await _json(request)
+    urls = [u for u in re.split(r"\s+", str(body.get("urls") or "")) if u.startswith("http")][:20]
+    out = []
+    for u in urls:
+        out.append(await _create({"url": u, "title": "Vidéo", "options": QUICK_OPTIONS}))
+    if body.get("upload_id"):
+        out.append(await _create({"upload_id": body["upload_id"], "title": body.get("title") or "Vidéo importée",
+                                  "options": QUICK_OPTIONS}))
+    if not out:
+        raise HTTPException(400, "Colle au moins un lien (https://…)")
+    return out
+
+
 @app.post("/api/projects")
 async def create_project(request: Request):
-    body = await request.json()
+    return await _create(await request.json())
+
+
+async def _create(body: dict) -> dict:
     opts = {k: v for k, v in (body.get("options") or {}).items() if k in jobs.DEFAULT_OPTIONS}
     title = body.get("title") or "Nouvelle vidéo"
     if body.get("upload_id"):
@@ -716,7 +766,7 @@ async def create_posts(request: Request):
     if not body.get("scheduled_at"):
         for p in created:
             if p["status"] == "scheduled":
-                scheduler.publish_post(p["id"])
+                scheduler.publish_in_background(p["id"])
     return [_post_view(db.get("posts", p["id"])) for p in created]
 
 
@@ -758,8 +808,10 @@ def publish_now(post_id: str):
     if not p:
         raise HTTPException(404)
     if p["status"] == "failed":
-        db.update("posts", post_id, status="scheduled")
-    return _post_view(scheduler.publish_post(post_id))
+        db.update("posts", post_id, status="scheduled", result={**(p.get("result") or {}), "attempts": 0})
+    scheduler.publish_in_background(post_id)
+    time.sleep(0.5)
+    return _post_view(db.get("posts", post_id))
 
 
 @app.delete("/api/posts/{post_id}")

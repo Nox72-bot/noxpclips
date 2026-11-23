@@ -67,7 +67,7 @@ export async function renderHome(view) {
     <div class="hero-box">
       <form class="url-bar" id="urlform">
         ${icon("link")}
-        <input id="url" type="url" inputmode="url" autocomplete="off" placeholder="Colle un lien YouTube, un live YouTube ou Twitch…">
+        <input id="url" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Colle un lien YouTube, un live YouTube ou Twitch…">
         <button class="btn primary" id="go">${icon("bolt", "sm")} <span>Obtenir des clips en 1 clic</span></button>
       </form>
       <div class="hero-actions">
@@ -75,6 +75,7 @@ export async function renderHome(view) {
         <span class="btn ghost" style="pointer-events:none">${icon("phone", "sm")} Format TikTok 9:16</span>
         <span class="btn ghost" style="pointer-events:none;color:var(--accent)">${icon("bolt", "sm")} 0 crédit · illimité</span>
       </div>
+      <div id="apbanner" class="hidden"></div>
       <div id="upprog" class="hidden" style="margin-top:12px"><div class="row between small muted"><span id="upname"></span><span id="uppct">0%</span></div><div class="bar" style="margin-top:6px"><div id="upbar" style="width:0"></div></div></div>
     </div>
   </div>
@@ -90,10 +91,33 @@ export async function renderHome(view) {
   };
   $$("[data-r]", view).forEach((b) => (b.onclick = () => setRecipe(b.dataset.r)));
 
+  let auto = false;
+  api("/api/autopilot").then((d) => {
+    auto = !!d.config.enabled;
+    const n = d.accounts.filter((a) => !(d.config.accounts || []).length || d.config.accounts.includes(a.id)).length;
+    const b = $("#apbanner");
+    if (!b) return;
+    b.className = "ap-banner";
+    b.innerHTML = auto
+      ? `🤖 <b>Pilote automatique activé</b> : colle un ou plusieurs liens (ou importe une vidéo), les meilleurs clips se programment et se publient tout seuls sur ${n} réseau${n > 1 ? "x" : ""}. <a href="#/autopilot">Voir le planning</a>`
+      : `💡 Active le <a href="#/autopilot"><b>pilote automatique</b></a> pour que tes vidéos deviennent des posts programmés et publiés tout seuls.`;
+    if (auto) $("#go span").textContent = "Créer et publier automatiquement";
+  }).catch(() => {});
+  const quick = async (body) => {
+    const r = await api("/api/projects/quick", { method: "POST", body });
+    toast(`${r.length} vidéo${r.length > 1 ? "s" : ""} ajoutée${r.length > 1 ? "s" : ""} au pilote automatique 🤖`, "ok");
+    $("#url").value = "";
+    load();
+  };
+
   $("#urlform").onsubmit = async (e) => {
     e.preventDefault();
     const url = $("#url").value.trim();
     if (!/^https?:\/\//.test(url)) return toast("Colle un lien valide (https://…)", "err");
+    if (auto) {
+      try { await quick({ urls: url }); } catch (err) { toast(err.message, "err"); }
+      return;
+    }
     const btn = $("#go");
     btn.disabled = true;
     btn.innerHTML = `${icon("refresh", "sm spin")} <span>Analyse du lien…</span>`;
@@ -127,6 +151,7 @@ export async function renderHome(view) {
         $("#uppct").textContent = Math.round(p * 100) + "%";
         $("#upbar").style.width = p * 100 + "%";
       });
+      if (auto) { $("#upprog").classList.add("hidden"); await quick({ upload_id: res.upload_id, title: res.title }); return; }
       newDraft({ upload_id: res.upload_id, title: res.title, duration: res.duration, thumbnail: res.thumbnail, kind: "upload" }, recipe);
     } catch (err) {
       toast(err.message, "err");
