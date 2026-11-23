@@ -182,17 +182,39 @@ def youtube_login_status():
     return ytlogin.status()
 
 
+async def _json(request: Request) -> dict:
+    try:
+        body = await request.json()
+        return body if isinstance(body, dict) else {}
+    except ValueError:
+        return {}
+
+
 @app.post("/api/youtube-login/start")
-def youtube_login_start():
-    return ytlogin.start()
+async def youtube_login_start(request: Request):
+    body = await _json(request)
+    try:
+        return ytlogin.start(body.get("target") or "youtube")
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
 
 
 @app.post("/api/youtube-login/finish")
-def youtube_login_finish():
+async def youtube_login_finish(request: Request):
+    body = await _json(request)
     try:
-        return ytlogin.finish()
+        return ytlogin.finish(body.get("target") or "youtube", body.get("name") or "")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e)[:400])
+
+
+@app.get("/api/browser-shots/{name}")
+def browser_shot(name: str):
+    base = (DATA_DIR / "browser_shots").resolve()
+    p = (base / name).resolve()
+    if not p.is_relative_to(base) or not p.is_file():
+        raise HTTPException(404)
+    return FileResponse(p)
 
 
 @app.post("/api/youtube-login/stop")
@@ -519,6 +541,7 @@ def accounts():
     for r in rows:
         tok = r.pop("tokens") or {}
         r["mode"] = tok.get("mode")
+        r["method"] = tok.get("method") or "api"
         r["expires_at"] = tok.get("expires_at")
     return rows
 

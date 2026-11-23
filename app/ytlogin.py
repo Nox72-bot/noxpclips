@@ -1,4 +1,4 @@
-"""Connexion YouTube depuis l'iPad : un vrai navigateur tourne sur le serveur et s'affiche à distance (noVNC).
+"""Navigateur à distance : connexion YouTube / TikTok depuis l'iPad : un vrai navigateur tourne sur le serveur et s'affiche à distance (noVNC).
 
 YouTube bloque souvent les serveurs (« Sign in to confirm you're not a bot »). La parade fiable est
 d'utiliser les cookies d'un compte YouTube connecté. Sur iPad on ne peut pas exporter ses cookies :
@@ -28,10 +28,16 @@ DISPLAY = ":99"
 VNC_PORT = 5901
 WEB_PORT = int(os.environ.get("NOXP_VNC_PORT", "6080"))
 LOGIN_URL = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F"
+TARGETS = {
+    "youtube": {"label": "YouTube", "url": LOGIN_URL},
+    "tiktok": {"label": "TikTok", "url": "https://www.tiktok.com/login"},
+}
+# Pris par le robot de publication pendant qu'il utilise le profil du navigateur
+browser_lock = threading.Lock()
 APT_PACKAGES = ["chromium", "xvfb", "x11vnc", "novnc", "websockify"]
 NOVNC_DIRS = ["/usr/share/novnc", "/usr/share/webapps/novnc"]
 
-_state: dict = {"state": "idle", "message": "", "pw": ""}
+_state: dict = {"state": "idle", "message": "", "pw": "", "target": "youtube"}
 _procs: dict[str, subprocess.Popen] = {}
 _lock = threading.Lock()
 
@@ -72,6 +78,7 @@ def viewer_url() -> str:
 
 def status() -> dict:
     s = {k: v for k, v in _state.items() if k != "pw"}
+    s["publishing"] = browser_lock.locked()
     s["url"] = viewer_url() if s["state"] == "running" else ""
     s["port"] = WEB_PORT
     s["has_cookies"] = bool(db.get_settings().get("ytdlp_cookies")) and COOKIES.exists()
@@ -128,12 +135,13 @@ def _run_start() -> None:
         for f in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
             (PROFILE / f).unlink(missing_ok=True)
         _set("starting", "Démarrage du navigateur…")
+        target = TARGETS.get(_state.get("target"), TARGETS["youtube"])
         _spawn("xvfb", ["Xvfb", DISPLAY, "-screen", "0", "1280x860x24", "-nolisten", "tcp"])
         time.sleep(1.5)
         env = {**os.environ, "DISPLAY": DISPLAY}
         _spawn("chromium", [_chromium(), f"--user-data-dir={PROFILE}", "--no-first-run", "--no-default-browser-check",
                             "--password-store=basic", "--no-sandbox", "--disable-dev-shm-usage", "--start-maximized",
-                            "--window-position=0,0", "--window-size=1280,860", "--lang=fr-FR", LOGIN_URL], env)
+                            "--window-position=0,0", "--window-size=1280,860", "--lang=fr-FR", target["url"]], env)
         _state["pw"] = secrets.token_hex(4)  # mot de passe VNC propre à cette session (8 caractères max)
         _spawn("x11vnc", ["x11vnc", "-display", DISPLAY, "-forever", "-shared", "-passwd", _state["pw"], "-localhost",
                           "-rfbport", str(VNC_PORT), "-quiet"])
@@ -143,47 +151,76 @@ def _run_start() -> None:
         dead = [n for n, p in _procs.items() if p.poll() is not None]
         if dead:
             raise RuntimeError("Le programme suivant n'a pas démarré : " + ", ".join(dead))
-        _set("running", "Navigateur prêt : connecte-toi à YouTube.")
+        _set("running", f"Navigateur prêt : connecte-toi à {target['label']}.")
     except Exception as e:  # noqa: BLE001
-        log.exception("Connexion YouTube : démarrage impossible")
+        log.exception("Navigateur à distance : démarrage impossible")
         _stop_procs()
         _set("error", str(e)[:400])
 
 
-def start() -> dict:
+def running() -> bool:
+    return _state["state"] in ("installing", "starting", "running")
+
+
+def start(target: str = "youtube") -> dict:
     with _lock:
+        if browser_lock.locked():
+            raise RuntimeError("Une publication automatique est en cours : réessaie dans une minute.")
         if _state["state"] in ("installing", "starting"):
             return status()
-        if _state["state"] == "running" and all(p.poll() is None for p in _procs.values()):
+        if (_state["state"] == "running" and _state.get("target") == target
+                and all(p.poll() is None for p in _procs.values())):
             return status()
+        _state["target"] = target if target in TARGETS else "youtube"
         _set("starting", "Préparation…")
         threading.Thread(target=_run_start, daemon=True).start()
     return status()
 
 
-def finish() -> dict:
-    """Ferme le navigateur, enregistre les cookies YouTube dans cookies.txt."""
+def profile_cookies(*domains: str) -> list:
+    from yt_dlp.cookies import extract_cookies_from_browser
+
+    if not PROFILE.exists():
+        return []
+    jar = extract_cookies_from_browser("chromium", str(PROFILE), keyring="BASICTEXT")
+    return [c for c in jar if c.domain.lstrip(".").endswith(domains)]
+
+
+def export_youtube_cookies() -> int:
+    """Copie les cookies YouTube du navigateur dans cookies.txt (téléchargements yt-dlp)."""
+    from yt_dlp.cookies import YoutubeDLCookieJar
+
+    keep = profile_cookies("youtube.com", "google.com")
+    if not {c.name for c in keep} & {"SAPISID", "__Secure-3PAPISID", "__Secure-3PSID", "SID", "LOGIN_INFO"}:
+        raise RuntimeError("Aucune connexion YouTube trouvée : relance la connexion et va jusqu'à la page "
+                           "d'accueil de YouTube avec ton compte avant d'appuyer sur « J'ai terminé ».")
+    out = YoutubeDLCookieJar(str(COOKIES))
+    for c in keep:
+        if c.expires and c.expires > 10**12:  # format Chrome (µs depuis 1601) → secondes Unix
+            c.expires = int(c.expires / 1_000_000 - 11_644_473_600)
+        out.set_cookie(c)
+    out.save(ignore_discard=True, ignore_expires=True)
+    db.set_settings({"ytdlp_cookies": str(COOKIES)})
+    return len(keep)
+
+
+def finish(target: str = "youtube", name: str = "") -> dict:
+    """Ferme le navigateur, vérifie la connexion et enregistre le compte (publication + téléchargements)."""
+    from .social.platforms import _save_account
+
     with _lock:
         _stop_procs()
         _set("idle")
-        from yt_dlp.cookies import extract_cookies_from_browser
-
-        jar = extract_cookies_from_browser("chromium", str(PROFILE), keyring="BASICTEXT")
-        keep = [c for c in jar if c.domain.lstrip(".").endswith(("youtube.com", "google.com"))]
-        names = {c.name for c in keep}
-        if not names & {"SAPISID", "__Secure-3PAPISID", "__Secure-3PSID", "SID", "LOGIN_INFO"}:
-            raise RuntimeError("Aucune connexion YouTube trouvée : relance la connexion et va jusqu'à la page "
-                               "d'accueil de YouTube avec ton compte avant d'appuyer sur « J'ai terminé ».")
-        from yt_dlp.cookies import YoutubeDLCookieJar
-
-        out = YoutubeDLCookieJar(str(COOKIES))
-        for c in keep:
-            if c.expires and c.expires > 10**12:  # format Chrome (µs depuis 1601) → secondes Unix
-                c.expires = int(c.expires / 1_000_000 - 11_644_473_600)
-            out.set_cookie(c)
-        out.save(ignore_discard=True, ignore_expires=True)
-        db.set_settings({"ytdlp_cookies": str(COOKIES)})
-        return {"ok": True, "count": len(keep)}
+        name = (name or "").strip()[:60]
+        if target == "tiktok":
+            if not {c.name for c in profile_cookies("tiktok.com")} & {"sessionid", "sessionid_ss", "sid_tt"}:
+                raise RuntimeError("Aucune connexion TikTok trouvée : relance la connexion et va jusqu'à ton fil "
+                                   "TikTok avec ton compte avant d'appuyer sur « J'ai terminé ».")
+            acc = _save_account("tiktok", "browser", name or "Mon compte TikTok", "", {"method": "browser"})
+            return {"ok": True, "account": acc["name"]}
+        count = export_youtube_cookies()
+        acc = _save_account("youtube", "browser", name or "Ma chaîne YouTube", "", {"method": "browser"})
+        return {"ok": True, "count": count, "account": acc["name"]}
 
 
 def stop() -> dict:
