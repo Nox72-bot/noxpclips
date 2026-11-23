@@ -45,7 +45,11 @@ async def auth_mw(request: Request, call_next):
         open_ = any(path.startswith(p) for p in OPEN_PATHS) and not path.endswith("/start")
         if not open_ and not hmac.compare_digest(request.cookies.get(AUTH_COOKIE, ""), _auth_token()):
             return JSONResponse({"detail": "auth"}, status_code=401)
-    return await call_next(request)
+    resp = await call_next(request)
+    if path == "/" or path.startswith("/static/"):
+        # Interface : le navigateur revérifie à chaque ouverture (sinon Safari garde l'ancienne version après une mise à jour)
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.on_event("startup")

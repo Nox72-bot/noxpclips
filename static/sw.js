@@ -1,5 +1,5 @@
 // NOXPclips — service worker : l'interface s'ouvre même avec un réseau instable.
-const CACHE = "noxp-shell-v1";
+const CACHE = "noxp-shell-v2";
 const SHELL = ["/", "/static/app.css?v=1", "/static/js/main.js?v=1", "/static/manifest.webmanifest", "/static/icons/icon-192.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {
