@@ -470,3 +470,13 @@ code, .code { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; fon
 .live-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
 .live-tools { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .live-tools .input { min-width: 180px; }
+
+/* Connexion express */
+.express { margin-bottom: 16px; border-color: #b8ff3c44; }
+.x-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr) 150px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.x-row .plat-logo .i { width: 20px; height: 20px; }
+@media (max-width: 760px) {
+  .x-row { grid-template-columns: 40px minmax(0, 1fr); }
+  .x-row [data-pw] { grid-column: 2; }
+  .x-row .x-state { grid-column: 2; }
+}

@@ -8,13 +8,16 @@ const TEXTS = {
   instagram: { title: "Connecter Instagram", icon: "instagram", user: "Nom d'utilisateur, e-mail ou téléphone", ph: "toncompte" },
 };
 
-export function browserLoginModal(target = "youtube", onDone) {
+export function browserLoginModal(target = "youtube", onDone, opts = {}) {
+  // Renvoie une promesse : true si le compte est connecté, false si la fenêtre est fermée avant
+  let resolveDone;
+  const result = new Promise((r) => { resolveDone = r; });
   const T = TEXTS[target] || TEXTS.youtube;
   let timer = null, finished = false, finishing = false, busy = false;
   const m = modal(`
     <div class="modal-head"><h2>${icon(T.icon)} ${T.title}</h2><button class="icon-btn" data-close>${icon("x")}</button></div>
-    <form id="lf" class="stack" autocomplete="off">
-      <label class="field">${T.user}<input class="input" id="lu" placeholder="${esc(T.ph)}" autocapitalize="off" autocorrect="off" spellcheck="false" required></label>
+    <form id="lf" class="stack ${opts.resume ? "hidden" : ""}" autocomplete="off">
+      <label class="field">${T.user}<input class="input" id="lu" value="${esc(opts.user || "")}" placeholder="${esc(T.ph)}" autocapitalize="off" autocorrect="off" spellcheck="false" required></label>
       <label class="field">Mot de passe<div class="row" style="gap:6px"><input class="input grow" id="lp" type="password" required>
         <button class="btn" type="button" id="lshow" title="Afficher">${icon("eye", "sm")}</button></div></label>
       <button class="btn primary block" id="lgo">${icon("bolt", "sm")} Se connecter</button>
@@ -31,7 +34,8 @@ export function browserLoginModal(target = "youtube", onDone) {
     </div>
     <p class="small faint" style="margin:8px 0 0">Captcha ou bouton à toucher ? Touche ou fais glisser directement sur l'image.</p>`, {
     wide: true,
-    onClose: () => { clearTimeout(timer); if (!finished) api("/api/live/close", { method: "POST" }).catch(() => {}); },
+    // le navigateur reste ouvert quelques minutes : se reconnecter / connecter un autre réseau est instantané
+    onClose: () => { clearTimeout(timer); if (!finished) resolveDone(false); },
   });
   const st = $("#lstate", m.el), img = $("#limg", m.el), wrap = $("#lwrap", m.el);
   const say = (html) => { st.innerHTML = html; };
@@ -45,6 +49,7 @@ export function browserLoginModal(target = "youtube", onDone) {
       finished = true;
       toast(`${T.title.replace("Connecter ", "")} connecté ✔ (${r.account})`, "ok");
       m.close();
+      resolveDone(true);
       onDone && onDone();
     } catch (e) { finishing = false; say(`<span style="color:var(--danger)">${esc(e.message)}</span>`); }
   };
@@ -66,7 +71,7 @@ export function browserLoginModal(target = "youtube", onDone) {
     if (e.target.id === "lagain") { e.preventDefault(); $("#lf", m.el).classList.remove("hidden"); }
   });
   const start = async () => {
-    try { await api("/api/live/start", { method: "POST", body: { target } }); } catch (e) { return say(`<span style="color:var(--danger)">${esc(e.message)}</span>`); }
+    try { await api("/api/live/start", { method: "POST", body: { target, resume: !!opts.resume } }); } catch (e) { return say(`<span style="color:var(--danger)">${esc(e.message)}</span>`); }
     clearTimeout(timer);
     poll();
   };
@@ -107,6 +112,7 @@ export function browserLoginModal(target = "youtube", onDone) {
     pts = null;
   });
   start();
+  return result;
 }
 
 export const youtubeLoginModal = (onDone) => browserLoginModal("youtube", onDone);

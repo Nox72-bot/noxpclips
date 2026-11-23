@@ -195,7 +195,13 @@ def _live(fn, *a):
 @app.post("/api/live/start")
 async def live_start(request: Request):
     body = await _json(request)
-    return _live(livebrowser.start, str(body.get("target") or ""))
+    return await run_in_threadpool(_live, livebrowser.start, str(body.get("target") or ""), "",
+                                   bool(body.get("resume")))
+
+
+@app.post("/api/live/warm")
+def live_warm():
+    return livebrowser.warm()
 
 
 @app.get("/api/live/status")

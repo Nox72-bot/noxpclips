@@ -15,6 +15,11 @@ if ! command -v deno >/dev/null; then
 fi
 # Robot de publication (navigateur) : composant ajouté après la création du Codespace
 python -c "import playwright" 2>/dev/null || pip install --user -q "playwright>=1.45" || true
+# Navigateur des connecteurs : installé en arrière-plan dès le démarrage, pour qu'il soit prêt avant le 1er clic
+if ! command -v chromium >/dev/null && ! command -v chromium-browser >/dev/null; then
+  (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends chromium xvfb) \
+    > /tmp/noxp-browser-install.log 2>&1 &
+fi
 # yt-dlp suit les changements de YouTube : on prend toujours la dernière version
 pip install --user -q -U "yt-dlp[default]" 2>/dev/null || true
 pkill -f "supervise.sh" 2>/dev/null || true

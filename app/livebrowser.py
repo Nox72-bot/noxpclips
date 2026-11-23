@@ -22,7 +22,8 @@ log = logging.getLogger("noxp.live")
 
 DISPLAY = ":96"
 VIEW = {"width": 1024, "height": 768}
-IDLE_CLOSE = 12 * 60
+IDLE_CLOSE = 5 * 60      # libère le navigateur (et la publication) après 5 min sans action
+WARM_CLOSE = 3 * 60      # navigateur préchauffé mais pas utilisé
 URLS = {
     "tiktok": "https://www.tiktok.com/login/phone-or-email/email",
     "instagram": "https://www.instagram.com/accounts/login/",
@@ -37,7 +38,7 @@ TEST_HOOK = None  # tests : fonction appelée avec le contexte Playwright (pages
 
 
 class Session:
-    def __init__(self, target: str, name: str = ""):
+    def __init__(self, target: str | None, name: str = ""):
         self.target = target
         self.name = name
         self.q: queue.Queue = queue.Queue()
@@ -47,12 +48,14 @@ class Session:
         self.url = ""
         self.logged_in = False
         self.last_use = time.time()
+        self.used = target is not None
         self.thread = threading.Thread(target=self._run, name="noxp-live", daemon=True)
         self.thread.start()
 
     # -------- commandes depuis l'API (exécutées dans le fil du navigateur)
     def do(self, fn, timeout: float = 60):
         self.last_use = time.time()
+        self.used = True
         done: queue.Queue = queue.Queue()
         self.q.put((fn, done))
         try:
@@ -94,11 +97,12 @@ class Session:
                     TEST_HOOK(self.ctx)
                 self.page = self.ctx.pages[0] if self.ctx.pages else self.ctx.new_page()
                 self.page.set_default_timeout(20_000)
-                try:
-                    self.page.goto(URLS[self.target], wait_until="domcontentloaded", timeout=45_000)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("Connexion %s : page lente (%s)", self.target, str(e)[:120])
-                self.state, self.message = "ready", "Page de connexion ouverte."
+                if self.target:  # sinon : navigateur préchauffé, la page s'ouvrira au premier clic
+                    try:
+                        self.page.goto(URLS[self.target], wait_until="domcontentloaded", timeout=45_000)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("Connexion %s : page lente (%s)", self.target, str(e)[:120])
+                self.state, self.message = "ready", "Page de connexion ouverte." if self.target else "Navigateur prêt."
                 last_shot = last_check = 0.0
                 while True:
                     try:
@@ -125,7 +129,7 @@ class Session:
                     if now - last_check > 2.5:
                         self.logged_in = self._check_login()
                         last_check = now
-                    if now - self.last_use > IDLE_CLOSE:
+                    if now - self.last_use > (IDLE_CLOSE if self.used else WARM_CLOSE):
                         self.message = "Fermé après 12 minutes sans activité."
                         break
                 self.ctx.close()
@@ -141,6 +145,8 @@ class Session:
                 self.state = "closed"
 
     def _check_login(self) -> bool:
+        if not self.target:
+            return False
         domain, names = SESSION_COOKIES[self.target]
         try:
             return any(c["name"] in names and c["domain"].lstrip(".").endswith(domain) for c in self.ctx.cookies())
@@ -177,17 +183,46 @@ def current() -> Session | None:
     return s if s and s.thread.is_alive() else None
 
 
-def start(target: str, name: str = "") -> dict:
+def start(target: str, name: str = "", resume: bool = False) -> dict:
     global _session
     if target not in URLS:
         raise RuntimeError("Réseau inconnu")
     with _lock:
         if ytlogin.running():
             ytlogin.stop()
-        old = current()
-        if old:
-            close(old)
+        s = current()
+        if s and s.state in ("starting", "installing"):  # préchauffage en cours : il ouvrira directement ce réseau
+            s.target, s.used, s.last_use = target, True, time.time()
+            return status()
+        if s and s.state == "ready":
+            if resume and s.target == target:
+                s.last_use = time.time()
+                return status()
+
+            def go(sess: Session):
+                sess.target, sess.logged_in, sess.shot = target, False, b""
+                sess.message = "Page de connexion ouverte."
+                try:
+                    sess.page.goto(URLS[target], wait_until="domcontentloaded", timeout=45_000)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Connexion %s : page lente (%s)", target, str(e)[:120])
+                sess.logged_in = sess._check_login()  # déjà connecté (session encore valide) ?
+                return True
+
+            s.do(go, timeout=60)
+            return status()
+        if s:
+            close(s)
         _session = Session(target, name)
+    return status()
+
+
+def warm() -> dict:
+    """Préchauffe le navigateur (ouverture de la page Connecteurs) : la connexion démarre ensuite sans attente."""
+    global _session
+    with _lock:
+        if not current() and not ytlogin.running() and not ytlogin.browser_lock.locked():
+            _session = Session(None)
     return status()
 
 
@@ -274,17 +309,17 @@ def autologin(username: str, password: str) -> dict:
     def dismiss(p):
         import re
 
-        for n in (r"^(Tout accepter|Accepter tout|Accept all|Autoriser tous les cookies|Allow all cookies)$",
-                  r"^(Refuser les cookies optionnels|Decline optional cookies)$"):
-            try:
-                p.get_by_role("button", name=re.compile(n, re.I)).first.click(timeout=1500)
-                break
-            except Exception:  # noqa: BLE001
-                pass
+        try:  # bandeau de cookies, s'il est là (on ne l'attend pas)
+            p.get_by_role("button", name=re.compile(
+                r"^(Tout accepter|Accepter tout|Accept all|Autoriser tous les cookies|Allow all cookies|"
+                r"Refuser les cookies optionnels|Decline optional cookies)$", re.I)).first.click(timeout=600)
+        except Exception:  # noqa: BLE001
+            pass
 
     def run(sess: Session):
         p = sess.page
         dismiss(p)
+        start_url = p.url
         if sess.target == "youtube":
             first(p, ['input[type="email"]', 'input[name="identifier"]']).fill(username)
             p.keyboard.press("Enter")
@@ -298,7 +333,14 @@ def autologin(username: str, password: str) -> dict:
                 first(p, ['button[data-e2e="login-button"]', 'button[type="submit"]'], timeout=4000).click()
             except Exception:  # noqa: BLE001
                 p.keyboard.press("Enter")
-        time.sleep(3)
+        end = time.time() + 10
+        while time.time() < end:  # connexion réussie ou page suivante (code, captcha…)
+            p.wait_for_timeout(300)
+            sess.logged_in = sess._check_login()
+            if sess.logged_in or p.url != start_url:
+                break
+        p.wait_for_timeout(400)
+        sess.logged_in = sess._check_login()
         return True
 
     sess_msg = "Identifiants saisis. Si une vérification apparaît, fais-la sur l'image ci-dessous."
@@ -312,12 +354,41 @@ def autologin(username: str, password: str) -> dict:
     return status()
 
 
+def _write_cookies_txt(cookies: list[dict]) -> int:
+    """cookies.txt (format Netscape) pour les téléchargements YouTube, à partir de la session ouverte."""
+    from . import db
+
+    keep = [c for c in cookies if c["domain"].lstrip(".").endswith(("youtube.com", "google.com"))]
+    lines = ["# Netscape HTTP Cookie File"]
+    for c in keep:
+        dom = c["domain"]
+        exp = int(c.get("expires") or 0)
+        lines.append("\t".join([dom, "TRUE" if dom.startswith(".") else "FALSE", c.get("path") or "/",
+                                 "TRUE" if c.get("secure") else "FALSE", str(max(exp, 0)), c["name"], c["value"]]))
+    ytlogin.COOKIES.write_text("\n".join(lines) + "\n")
+    db.set_settings({"ytdlp_cookies": str(ytlogin.COOKIES)})
+    return len(keep)
+
+
 def finish(name: str = "") -> dict:
-    """Ferme le navigateur (cookies écrits sur le disque) et enregistre le compte."""
-    s = current() or _session
-    if not s:
+    """Enregistre le compte connecté. Le navigateur reste ouvert pour connecter le réseau suivant sans attente."""
+    from .social.platforms import _save_account
+
+    s = current()
+    if not s or not s.target:
         raise RuntimeError("Aucune connexion en cours.")
-    target = s.target
-    name = name or s.name
-    close(s)
-    return ytlogin.finish(target, name)
+    labels = {"tiktok": "TikTok", "instagram": "Instagram", "youtube": "YouTube"}
+
+    def run(sess: Session):
+        if not sess._check_login():
+            raise RuntimeError(f"Tu n'es pas encore connecté à {labels[sess.target]} : termine la connexion sur l'image.")
+        extra = {}
+        if sess.target == "youtube":
+            extra["count"] = _write_cookies_txt(sess.ctx.cookies())
+        default = {"tiktok": "Mon compte TikTok", "instagram": "Mon compte Instagram", "youtube": "Ma chaîne YouTube"}
+        acc = _save_account(sess.target, "browser", (name or sess.name or default[sess.target])[:60], "",
+                            {"method": "browser"})
+        sess.last_use = time.time() - IDLE_CLOSE + 90  # se ferme tout seul 90 s après (libère la publication)
+        return {"ok": True, "account": acc["name"], **extra}
+
+    return s.do(run, timeout=30)

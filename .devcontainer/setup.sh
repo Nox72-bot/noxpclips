@@ -6,7 +6,7 @@ echo "▶ Installation de NOXPclips (Python)…"
 pip install --user -q -r requirements.txt || echo "⚠️ pip a rencontré une erreur"
 echo "▶ Installation de ffmpeg et des polices…"
 sudo apt-get update -qq || echo "⚠️ apt-get update incomplet (on continue)"
-sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-noto-color-emoji fontconfig > /dev/null \
+sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-noto-color-emoji fontconfig chromium xvfb > /dev/null \
   || echo "⚠️ ffmpeg non installé"
 echo "▶ Installation de Deno (nécessaire à yt-dlp pour lire YouTube)…"
 if ! command -v deno >/dev/null && [ ! -x "$HOME/.deno/bin/deno" ]; then
