@@ -67,7 +67,7 @@ export async function renderNew(view) {
     max_clips: 10, ai_engine: "", layout_mode: "", cam_corner: "top-left", captions: true,
     caption_style: settings.brand.caption_style || "neon", caption_position: settings.brand.caption_position || "middle",
     hook: true, hook_style: "punchy", hook_duration: 4, ai_emojis: false, voice_cleanup: "off", enhance_audio: false,
-    auto_zoom: false, transitions: false, color_correct: false, translate_to: "", brand_logo: true, split: true, captions_fr: true, progress_bar: true,
+    auto_zoom: false, transitions: false, color_correct: false, translate_to: "", brand_logo: true, split: true, captions_fr: true, progress_bar: true, trends: true,
     ...draft.options,
   };
   const dur = Math.round(src.duration || 0);
@@ -135,6 +135,8 @@ export async function renderNew(view) {
         </div>
 
         <div class="section-title">Essentiels</div>
+        ${row("trends", "sparkles", "Suivre les tendances TikTok du moment", toggle("trends", o.trends), { on: o.trends, badge: ' <span class="pill free">📈 Live</span>' })}
+        <p class="small faint" style="margin:-6px 0 8px 54px">Cherche ce qui buzze cette semaine sur TikTok dans ta niche (avec ta clé Gemini gratuite) et dans les recherches Google du jour, puis met en avant les clips qui collent à ces tendances et ajoute les bons hashtags.</p>
         ${row("captions", "cc", "Sous-titres", `<select class="select-inline" id="caption_position"><option value="top">En haut</option><option value="middle">Au milieu</option><option value="bottom">En bas</option></select>${toggle("captions", o.captions)}`, { on: o.captions })}
         <div class="setting-sub ${o.captions ? "" : "hidden"}" id="capbox"><div class="style-scroller" id="styles">
           ${styles.captions.map((s) => `<div class="style-card ${s.id === o.caption_style ? "on" : ""}" data-style="${s.id}">${s.id === o.caption_style ? '<span class="tag">Sélectionné</span>' : `<span class="tag">${esc(s.label)}</span>`}${stylePreview(s)}</div>`).join("")}
@@ -199,7 +201,7 @@ export async function renderNew(view) {
   bindToggle("split", "split", "splitbox");
   bindToggle("captions", "captions", "capbox");
   bindToggle("hook", "hook", "hookbox");
-  ["ai_emojis", "enhance_audio", "auto_zoom", "transitions", "color_correct", "brand_logo", "captions_fr", "progress_bar"].forEach((k) => bindToggle(k, k));
+  ["ai_emojis", "enhance_audio", "auto_zoom", "transitions", "color_correct", "brand_logo", "captions_fr", "progress_bar", "trends"].forEach((k) => bindToggle(k, k));
   bindToggle("voice_cleanup");
   bindToggle("translate");
   $("#caption_position").value = o.caption_position;

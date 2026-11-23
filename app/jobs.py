@@ -16,6 +16,7 @@ from .config import PROJECTS_DIR
 from .pipeline import analyze as an
 from .pipeline import download as dl
 from .pipeline import faces, llm
+from .pipeline import trends as trd
 from .pipeline import ffmpeg as ff
 from .pipeline import render as rd
 
@@ -54,6 +55,7 @@ DEFAULT_OPTIONS = {
     "brand_logo": True,
     "split": True,  # False = pas de découpage : un seul clip sur toute la plage
     "progress_bar": True,  # barre de progression (incite à regarder jusqu'au bout)
+    "trends": True,  # suivre les tendances TikTok / web actuelles pour choisir les clips
 }
 
 
@@ -234,6 +236,23 @@ def process_project(pid: str) -> None:
         c["text"] = an.clip_text(segments, c["start"], c["end"])
         c["chat_peak"] = bool(chat) and float(signals["chat_z"][int(c["start"]):int(c["end"]) + 1].max(initial=0)) > 2.5
 
+    # Tendances actuelles : quels extraits parlent de ce qui buzze en ce moment ?
+    trends: dict = {}
+    meta.pop("trends", None)
+    if opts.get("trends", True) and cands:
+        _set(pid, "analyzing", 0.55, "Recherche des tendances TikTok du moment…")
+        try:
+            trends = trd.get_trends(settings, genre, lang)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Tendances indisponibles : %s", e)
+        if trends:
+            meta["trends"] = {k: trends.get(k) for k in ("hashtags", "keywords", "formats", "sources", "errors", "live",
+                                                          "evergreen_hashtags")}
+            meta["trends"]["web"] = (trends.get("web") or [])[:12]
+            meta["trends"]["title_match"] = trd.match(meta.get("title", ""), trends)[1]
+    for c in cands:
+        c["trend"], c["trend_found"] = trd.match(c["text"], trends)
+
     engine = settings["ai_engine"] if not opts.get("ai_engine") else opts["ai_engine"]
     engine = llm.available_engine({**settings, "ai_engine": engine})
     meta["ai_engine_used"] = engine
@@ -241,7 +260,7 @@ def process_project(pid: str) -> None:
     if engine != "heuristic" and cands:
         _set(pid, "analyzing", 0.58, f"L'IA ({engine}) classe les meilleurs moments…")
         ranked = llm.rank_clips(settings, cands, genre=genre, prompt=opts.get("prompt", ""),
-                                source_title=meta.get("title", ""), engine=engine, lang=lang)
+                                source_title=meta.get("title", ""), engine=engine, lang=lang, trends=trends)
         if not ranked:
             meta["ai_engine_used"] = f"{engine} (échec → heuristiques)"
 
@@ -279,6 +298,28 @@ def process_project(pid: str) -> None:
             except (TypeError, ValueError):
                 pass
         composite = 0.6 * scores["viral"] + 0.4 * max([scores[w] for w in wanted] or [scores["viral"]])
+        # Bonus tendance : l'extrait parle d'un sujet / d'un hashtag qui buzze en ce moment
+        strength, found = c.get("trend", 0.0), list(c.get("trend_found") or [])
+        label = str((r or {}).get("trend") or "").strip()
+        try:
+            strength = max(strength, 0.8 * float((r or {}).get("trend_fit") or 0) / 100)
+        except (TypeError, ValueError):
+            pass
+        if label and label not in found:
+            found.insert(0, label)
+        if trends and strength > 0.15 and found:
+            composite += 12 * strength
+            scores["trend"] = round(100 * strength)
+            scores["trend_label"] = found[0][:60]
+            tags = trd.hashtags_for(c.get("trend_found") or [], trends) + list(texts.get("hashtags") or [])
+            seen, merged = set(), []
+            for t in tags:
+                if t.lower() not in seen:
+                    seen.add(t.lower())
+                    merged.append(t)
+            texts["hashtags"] = merged[:8]
+            note = f"📈 Tendance du moment : {found[0][:60]}"
+            texts["reason"] = f"{texts.get('reason', '')} · {note}".strip(" ·")
         final.append({**c, "scores": scores, "category": cat, "composite": composite, **texts})
     final.sort(key=lambda c: c["composite"], reverse=True)
     final = final[:max_clips]
