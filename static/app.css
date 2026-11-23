@@ -433,3 +433,34 @@ code, .code { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; fon
 .scan-bar { padding: 10px 12px; border-radius: 12px; background: var(--bg-2); }
 @media (max-width: 900px) { .bot-desc { display: none; } .chat { height: calc(100dvh - 236px - var(--safe-t) - var(--safe-b)); min-height: 320px; padding: 12px; } }
 .sidebar { min-width: var(--sidebar); }
+
+/* Pilote automatique */
+.ap-switch { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); font-weight: 650; }
+.ap-switch.on { border-color: #b8ff3c66; color: var(--accent); }
+.ap-checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.ap-check { font-size: 14px; padding: 9px 12px; border-radius: 12px; background: var(--surface); }
+.ap-check.ok { color: var(--ok); } .ap-check.ko { color: var(--danger); } .ap-check.warn { color: var(--muted); }
+.ap-check a { text-decoration: underline; color: inherit; }
+.ap-add { display: flex; flex-direction: column; gap: 10px; }
+.ap-add textarea { resize: vertical; min-height: 54px; }
+.ap-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .ap-layout { grid-template-columns: minmax(0, 1fr); } }
+.ap-day { font-weight: 750; margin: 16px 0 8px; text-transform: capitalize; color: var(--muted); font-size: 14px; }
+.ap-post { display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: 12px; background: var(--bg-2); margin-bottom: 8px; }
+.ap-time { font-weight: 800; font-variant-numeric: tabular-nums; width: 46px; flex: none; }
+.ap-thumb { width: 34px; aspect-ratio: 9/16; border-radius: 7px; overflow: hidden; background: var(--surface-3); flex: none; }
+.ap-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ap-timechip { display: inline-flex; align-items: center; gap: 2px; }
+.ap-timechip .input { width: 132px; padding: 8px 10px; min-height: 0; }
+.pill.danger { background: #ff4d6d22; color: var(--danger); }
+.ap-banner { margin-top: 12px; font-size: 14px; color: var(--muted); }
+.ap-banner a { color: var(--accent); text-decoration: underline; }
+.ap-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ap-actions { display: flex; gap: 4px; flex: none; }
+@media (max-width: 600px) {
+  .ap-post { flex-wrap: wrap; align-items: flex-start; }
+  .ap-thumb { display: none; }
+  .ap-time { width: auto; min-width: 42px; padding-top: 2px; }
+  .ap-post > .grow { flex: 1 1 60%; }
+  .ap-actions { width: 100%; justify-content: flex-end; margin-top: -4px; }
+}

@@ -9,6 +9,7 @@ import { renderSettings, renderAnalytics } from "./settings.js";
 import { renderInspiration } from "./inspiration.js";
 import { renderConnectors } from "./connectors.js";
 import { renderBot } from "./bot.js";
+import { renderAutopilot } from "./autopilot.js";
 
 const NAV = [
   { label: "Créer" },
@@ -18,6 +19,7 @@ const NAV = [
   { path: "/inspiration", icon: "sparkles", text: "Inspiration TikTok" },
   { path: "/bot", icon: "bot", text: "Bot" },
   { label: "Publier" },
+  { path: "/autopilot", icon: "bolt", text: "Pilote auto" },
   { path: "/calendar", icon: "calendar", text: "Calendrier" },
   { path: "/analytics", icon: "chart", text: "Analytics" },
   { path: "/connectors", icon: "plug", text: "Connecteurs" },
@@ -26,7 +28,7 @@ const NAV = [
 ];
 const TABS = [
   { path: "/", icon: "home", text: "Accueil" },
-  { path: "/projects", icon: "folder", text: "Projets" },
+  { path: "/autopilot", icon: "bolt", text: "Pilote" },
   { path: "/calendar", icon: "calendar", text: "Calendrier" },
   { path: "/connectors", icon: "plug", text: "Connecteurs" },
   { path: "/bot", icon: "bot", text: "Bot" },
@@ -89,6 +91,7 @@ route("/analytics", renderAnalytics);
 route("/inspiration", renderInspiration);
 route("/connectors", renderConnectors);
 route("/bot", renderBot);
+route("/autopilot", renderAutopilot);
 
 shell();
 window.addEventListener("noxp-route", (e) => highlight(e.detail));
