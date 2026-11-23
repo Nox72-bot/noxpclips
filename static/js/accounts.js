@@ -30,8 +30,9 @@ const CONF = {
     ],
   },
   instagram: {
-    title: "Instagram Reels", short: "Instagram",
-    desc: "Publication automatique des Reels, en public, par l'API officielle d'Instagram (sans risque pour ton compte).",
+    title: "Instagram Reels", short: "Instagram", browser: true,
+    desc: "Tes Reels publiés automatiquement, en public, à l'heure prévue.",
+    apiNote: "Sans risque pour le compte : connexion officielle d'Instagram, mais il faut créer une appli Meta (≈10 min).",
     guideTitle: "Configurer en 4 étapes (≈10 min, une seule fois)",
     fields: [["instagram_app_id", "ID de l'app Instagram"], ["instagram_app_secret", "Clé secrète de l'app Instagram"]],
     steps: [

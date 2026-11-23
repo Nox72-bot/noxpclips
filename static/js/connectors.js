@@ -3,9 +3,9 @@ import { $, $$, api, confirmBox, copyText, esc, icon, modal, toast } from "./cor
 import { browserLoginModal } from "./ytlogin.js";
 
 const NETS = [
-  { p: "tiktok", name: "TikTok", how: "Connexion par navigateur · publication en public" },
-  { p: "youtube", name: "YouTube Shorts", how: "Connexion par navigateur · publication en public" },
-  { p: "instagram", name: "Instagram Reels", how: "Connexion officielle Instagram · publication en public" },
+  { p: "tiktok", name: "TikTok", how: "Identifiant + mot de passe · publication en public" },
+  { p: "youtube", name: "YouTube Shorts", how: "Compte Google + mot de passe · publication en public" },
+  { p: "instagram", name: "Instagram Reels", how: "Identifiant + mot de passe · publication en public" },
 ];
 
 // Instagram : assistant étape par étape (Meta impose une appli, on guide écran par écran)
@@ -59,21 +59,16 @@ export async function renderConnectors(view, _p, query = {}) {
         <div class="small ${mine.length ? "" : "muted"}" style="${mine.length ? "color:var(--ok)" : ""}">${mine.length ? `✔ Connecté : ${mine.map((a) => esc(a.name)).join(", ")}` : "Non connecté"}</div>
         <div class="small faint" style="margin:6px 0 14px">${how}</div>
         <button class="btn ${mine.length ? "" : "primary"} block" data-connect="${p}">${icon(mine.length ? "refresh" : "link", "sm")} ${mine.length ? "Reconnecter" : "Connecter"}</button>
-        ${p === "instagram" && settings.instagram_app_id ? `<button class="btn ghost sm block" style="margin-top:6px" data-igconf="1">${icon("settings", "sm")} Modifier la configuration</button>` : ""}
         ${mine.map((a) => `<button class="btn ghost sm block" style="margin-top:6px" data-disc="${a.id}">${icon("x", "sm")} Déconnecter ${esc(a.name)}</button>`).join("")}
       </div>`;
     }).join("")}</div>
-    <div class="card flat small" style="margin-top:16px">${icon("info", "sm")} TikTok et YouTube : tu te connectes une fois dans un navigateur qui tourne sur ton serveur, NOXPclips publie ensuite à ta place (reste à quelques posts par jour). Instagram : connexion officielle, sans risque. Les posts partent quand ton Codespace est allumé.
-      <div style="margin-top:8px"><a href="#/accounts" style="text-decoration:underline">Options avancées (API officielles YouTube / TikTok)</a></div></div>`;
+    <div class="card flat small" style="margin-top:16px">${icon("info", "sm")} Tu tapes ton identifiant et ton mot de passe une seule fois, sur la vraie page de connexion du réseau (ouverte dans un navigateur sur ton serveur : NOXPclips ne voit ni ne garde ton mot de passe). Ensuite NOXPclips publie à ta place ; reste à quelques posts par jour. Les posts partent quand ton Codespace est allumé.
+      <div style="margin-top:8px"><a href="#/accounts" style="text-decoration:underline">Options avancées (connexions officielles par API)</a> · <a href="#" id="igwiz" style="text-decoration:underline">Instagram par l'API officielle</a></div></div>`;
+  $("#igwiz").onclick = (e) => { e.preventDefault(); instagramWizard(settings, sys, reload); };
 
   $$("[data-connect]").forEach((b) => (b.onclick = () => {
-    const p = b.dataset.connect;
-    if (p === "instagram") {
-      if (settings.instagram_app_id && settings.instagram_app_secret) location.href = "/api/oauth/instagram/start";
-      else instagramWizard(settings, sys, reload);
-    } else browserLoginModal(p, reload);
+    browserLoginModal(b.dataset.connect, reload);
   }));
-  $$("[data-igconf]").forEach((b) => (b.onclick = () => instagramWizard(settings, sys, reload)));
   $$("[data-disc]").forEach((b) => (b.onclick = async () => {
     if (!(await confirmBox("Déconnecter ce compte ?", "Déconnecter"))) return;
     await api(`/api/accounts/${b.dataset.disc}`, { method: "DELETE" });

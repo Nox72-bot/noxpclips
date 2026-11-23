@@ -94,6 +94,8 @@ def publish(post: dict, clip: dict, account: dict, video: Path) -> dict:
                     res = _tiktok(page, post, clip, video)
                 elif platform == "youtube":
                     res = _youtube(page, post, clip, video)
+                elif platform == "instagram":
+                    res = _instagram(page, post, clip, video)
                 else:
                     raise PublishError("Plateforme non prise en charge par le navigateur")
             except Exception as e:
@@ -217,3 +219,50 @@ def _youtube(page, post: dict, clip: dict, video: Path) -> dict:
     vid = link.rstrip("/").rsplit("/", 1)[-1] if link else ""
     return {"id": vid, "url": f"https://youtube.com/shorts/{vid}" if vid else link, "status": "published",
             "note": "Publié sur YouTube (navigateur)."}
+
+
+# ------------------------------------------------------------------ Instagram Reels
+
+def _click_button(page, names: str, timeout: int = 30_000) -> None:
+    page.get_by_role("button", name=re.compile(names, re.I)).first.click(timeout=timeout)
+
+
+def _instagram(page, post: dict, clip: dict, video: Path) -> dict:
+    page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
+    time.sleep(4)
+    if "/accounts/login" in page.url:
+        raise PublishError("Instagram est déconnecté : refais la connexion dans Connecteurs.")
+    _dismiss(page, r"^(Autoriser tous les cookies|Allow all cookies|Tout accepter)$")
+    _dismiss(page, r"^(Plus tard|Pas maintenant|Not now)$", timeout=2500)
+    # bouton « Créer » du menu, puis « Publication » s'il y a un sous-menu
+    page.locator('svg[aria-label="Nouvelle publication"], svg[aria-label="New post"], '
+                 'svg[aria-label="Créer"], svg[aria-label="Create"]').first.click(timeout=30_000)
+    time.sleep(1.5)
+    try:
+        page.get_by_role("link", name=re.compile(r"^(Publication|Post)$", re.I)).first.click(timeout=3000)
+    except Exception:  # noqa: BLE001
+        _dismiss(page, r"^(Publication|Post)$", timeout=2000)
+    page.locator('input[type="file"]').first.set_input_files(str(video), timeout=60_000)
+    time.sleep(3)
+    _dismiss(page, r"^OK$", timeout=4000)  # « Les vidéos sont désormais partagées en tant que reels »
+    # recadrage : format d'origine (9:16)
+    try:
+        page.locator('svg[aria-label="Sélectionner le recadrage"], svg[aria-label="Select crop"]').first.click(timeout=5000)
+        page.get_by_role("button", name=re.compile(r"^(Original|Format original|Original size)", re.I)).first.click(timeout=3000)
+    except Exception:  # noqa: BLE001
+        pass
+    for _ in range(2):  # recadrage → retouches → légende
+        _click_button(page, r"^(Suivant|Next)$")
+        time.sleep(2)
+    cap = page.locator('div[aria-label^="Écrivez une légende"], div[aria-label^="Write a caption"], '
+                       'div[contenteditable="true"][role="textbox"]').first
+    cap.wait_for(state="visible", timeout=60_000)
+    _type(page, cap, _caption(post, clip)[:2100])
+    _click_button(page, r"^(Partager|Share)$")
+    # attendre le message de confirmation (texte affiché uniquement, pas le code de la page)
+    page.wait_for_function(
+        "re => new RegExp(re, 'i').test(document.body.innerText)",
+        arg=r"(reel a été partagé|publication a été partagée|reel has been shared|post has been shared|"
+            r"reel partagé|publication partagée)",
+        timeout=600_000, polling=2000)
+    return {"id": "", "url": "", "status": "published", "note": "Publié sur Instagram (navigateur)."}
