@@ -58,7 +58,7 @@ export async function renderProject(view, { id }) {
   const head = () => `<div class="page-head"><div class="row grow" style="min-width:0"><a class="icon-btn" href="#/projects">${icon("left")}</a>
       <div class="grow" style="min-width:0"><h1 style="margin:0;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(project.title)}</h1>
       <div class="small muted">${project.source_url ? `<a href="${esc(project.source_url)}" target="_blank" rel="noopener" style="text-decoration:underline">Source</a> · ` : ""}${new Date(project.created_at * 1000).toLocaleString("fr-FR")}</div></div></div>
-    <div class="row">${project.status === "done" ? `<button class="btn" id="reanalyze">${icon("refresh", "sm")} Relancer l'analyse</button><button class="btn primary" id="scheduleall">${icon("calendar", "sm")} Planifier une série</button>` : ""}</div></div>`;
+    <div class="row wrap">${project.status === "done" ? `<button class="btn" id="facecam">${icon("eye", "sm")} Facecam</button><button class="btn" id="reanalyze">${icon("refresh", "sm")} Relancer l'analyse</button><button class="btn primary" id="scheduleall">${icon("calendar", "sm")} Planifier une série</button>` : ""}</div></div>`;
 
   const draw = () => {
     const p = project;
@@ -93,7 +93,7 @@ export async function renderProject(view, { id }) {
         ${(meta.audience_signals || {}).heatmap ? `<span>📈 « Moments les plus revus » YouTube</span>` : ""}
         ${(meta.audience_signals || {}).comments ? `<span>💬 ${meta.audience_signals.comments} commentaires horodatés</span>` : ""}
         ${meta.language ? `<span>🗣️ Vidéo en ${esc(LANG_NAMES[meta.language] || meta.language)} · textes en ${meta.text_language === "en" ? "anglais" : "français"}${meta.language !== "fr" && p.options.captions_fr !== false ? " · sous-titres traduits en français" : ""}</span>` : ""}
-        <span>📐 ${esc({ split: "Facecam + jeu", fill: "Recadrage 9:16", fit: "Fond flou" }[(p.options.layout_mode || (meta.layout || {}).mode)] || "Auto")}</span>
+        <span>📐 ${esc({ full: "Gameplay entier", split: "Facecam + jeu recadré", fill: "Recadrage 9:16", fit: "Fond flou" }[(p.options.layout_mode || (meta.layout || {}).mode)] || "Auto")}</span>
       </div>
       ${meta.warning ? `<div class="card flat small" style="border-color:#ffb02055;color:var(--warn);margin-bottom:14px">${esc(meta.warning)}</div>` : ""}
       <div class="filters">${FILTERS.map(([k, l]) => `<button class="chip sm ${k === filter ? "on" : ""}" data-f="${k}">${l} <span class="faint">${k === "all" ? p.clips.length : p.clips.filter((c) => (k === "top" ? c.score >= 80 : c.category === k)).length}</span></button>`).join("")}</div>
@@ -101,6 +101,7 @@ export async function renderProject(view, { id }) {
     $$("[data-f]").forEach((b) => (b.onclick = () => { filter = b.dataset.f; draw(); }));
     $("#scheduleall").onclick = () => openSchedule(p.clips.filter((c) => c.status === "done"), () => {});
     $("#reanalyze").onclick = () => reanalyzeModal(p, load);
+    $("#facecam").onclick = () => facecamModal(p, load);
     $$(".clip-card").forEach((card) => {
       const c = p.clips.find((x) => x.id === card.dataset.id);
       card.addEventListener("click", (e) => {
@@ -146,7 +147,7 @@ function editClip(c, project, reload) {
           <label class="field">Facecam<select class="input" id="cam_corner">${CORNERS.map(([v, l]) => `<option value="${v}" ${o.cam_corner === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         </div>
         <div class="row wrap" style="gap:14px">
-          ${[["captions", "Sous-titres"], ["hook", "Accroche"], ["ai_emojis", "Emojis"], ["auto_zoom", "Zoom auto"], ["transitions", "Transitions"], ["color_correct", "Couleurs"], ["enhance_audio", "Audio+"]]
+          ${[["captions", "Sous-titres"], ["hook", "Accroche"], ["ai_emojis", "Emojis"], ["auto_zoom", "Zoom auto"], ["progress_bar", "Barre de progression"], ["transitions", "Transitions"], ["color_correct", "Couleurs"], ["enhance_audio", "Audio+"]]
             .map(([k, l]) => `<label class="row small" style="gap:8px">${toggle("o_" + k, !!o[k])} ${l}</label>`).join("")}
         </div>
       </div>
@@ -177,13 +178,81 @@ function editClip(c, project, reload) {
   $("#rerender", m.el).onclick = async () => {
     const options = { caption_style: $("#caption_style", m.el).value, hook_style: $("#hook_style", m.el).value,
       layout_mode: $("#layout_mode", m.el).value, cam_corner: $("#cam_corner", m.el).value };
-    ["captions", "hook", "ai_emojis", "auto_zoom", "transitions", "color_correct", "enhance_audio"].forEach((k) => (options[k] = $("#o_" + k, m.el).checked));
+    ["captions", "hook", "ai_emojis", "auto_zoom", "progress_bar", "transitions", "color_correct", "enhance_audio"].forEach((k) => (options[k] = $("#o_" + k, m.el).checked));
     try {
       await api(`/api/clips/${c.id}/rerender`, { method: "POST", body: { ...texts(), start: parseClock($("#start", m.el).value), end: parseClock($("#end", m.el).value), options } });
       toast("Nouveau montage lancé…", "ok");
       m.close(); reload();
     } catch (e) { toast(e.message, "err"); }
   };
+}
+
+// ---------- Facecam : l'utilisateur dessine le rectangle de la webcam sur une image du stream ----------
+function facecamModal(p, reload) {
+  const meta = p.meta || {};
+  const media = meta.media || {};
+  const times = p.clips.map((c) => (c.start + c.end) / 2);
+  let ti = 0;
+  let box = p.options.cam_box || ((meta.layout || {}).mode === "split" ? meta.layout.cam : null);
+  const m = modal(`
+    <div class="modal-head"><h2>${icon("eye")} Facecam du streamer</h2><button class="icon-btn" data-close>${icon("x")}</button></div>
+    <p class="muted" style="margin-top:0">Dessine au doigt un rectangle autour de la webcam. Les clips seront refaits avec <b>le streamer en haut et tout le gameplay en dessous</b>, avec zooms dynamiques.</p>
+    <div id="fcwrap" style="position:relative;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:${media.width || 16}/${media.height || 9}">
+      <img id="fcimg" alt="" style="width:100%;height:100%;object-fit:contain;pointer-events:none" draggable="false">
+      <div id="fcbox" style="position:absolute;border:3px solid var(--accent);box-shadow:0 0 0 9999px #0008;border-radius:6px;display:none;pointer-events:none"></div>
+    </div>
+    <div class="row wrap" style="margin-top:10px;gap:8px">
+      <button class="btn sm" id="fcnext">${icon("refresh", "sm")} Autre image</button>
+      <span class="small faint" id="fchint">${box ? "Rectangle actuel affiché — redessine-le si besoin." : "Aucune facecam détectée : dessine-la."}</span>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="fcnone">Pas de facecam (recadrage du jeu)</button>
+      <button class="btn" id="fcblur">Vidéo entière + fond flou</button>
+      <button class="btn" id="fcsplit" ${box ? "" : "disabled"}>Facecam + jeu recadré</button>
+      <button class="btn primary" id="fcok" ${box ? "" : "disabled"}>${icon("check", "sm")} Gameplay entier + facecam</button>
+    </div>`, { wide: true });
+  const wrap = $("#fcwrap", m.el), img = $("#fcimg", m.el), rect = $("#fcbox", m.el);
+  const show = () => {
+    if (!box) { rect.style.display = "none"; return; }
+    const [x, y, w, h] = box;
+    Object.assign(rect.style, { display: "block", left: x * 100 + "%", top: y * 100 + "%", width: w * 100 + "%", height: h * 100 + "%" });
+  };
+  const loadImg = () => { img.src = `/api/projects/${p.id}/frame?t=${Math.round(times[ti % times.length] || 10)}`; };
+  img.onload = show;
+  loadImg();
+  $("#fcnext", m.el).onclick = () => { ti++; loadImg(); };
+  let start = null;
+  const pos = (e) => {
+    const r = wrap.getBoundingClientRect();
+    return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+  };
+  wrap.addEventListener("pointerdown", (e) => { e.preventDefault(); wrap.setPointerCapture(e.pointerId); start = pos(e); });
+  wrap.addEventListener("pointermove", (e) => {
+    if (!start) return;
+    const [x2, y2] = pos(e);
+    box = [Math.min(start[0], x2), Math.min(start[1], y2), Math.abs(x2 - start[0]), Math.abs(y2 - start[1])];
+    show();
+  });
+  wrap.addEventListener("pointerup", () => {
+    start = null;
+    if (box && (box[2] < 0.03 || box[3] < 0.03)) box = null;  // simple tape : on ignore
+    show();
+    $("#fcok", m.el).disabled = !box;
+    $("#fcsplit", m.el).disabled = !box;
+    $("#fchint", m.el).textContent = box ? "Parfait ! Appuie sur « Gameplay entier + facecam »." : "Rectangle trop petit : fais glisser ton doigt pour l'agrandir.";
+  });
+  const apply = async (options, label) => {
+    try {
+      const r = await api(`/api/projects/${p.id}/rerender-all`, { method: "POST", body: { options } });
+      toast(`${label} : ${r.count} clips en cours de remontage…`, "ok");
+      m.close(); reload();
+    } catch (e) { toast(e.message, "err"); }
+  };
+  const roundBox = () => box.map((v) => Math.round(v * 10000) / 10000);
+  $("#fcok", m.el).onclick = () => apply({ layout_mode: "full", cam_box: roundBox(), auto_zoom: true, progress_bar: true }, "Gameplay entier + facecam");
+  $("#fcsplit", m.el).onclick = () => apply({ layout_mode: "split", cam_box: roundBox() }, "Facecam + jeu recadré");
+  $("#fcnone", m.el).onclick = () => apply({ layout_mode: "fill", cam_box: null }, "Recadrage du jeu");
+  $("#fcblur", m.el).onclick = () => apply({ layout_mode: "fit", cam_box: null }, "Fond flou");
 }
 
 function reanalyzeModal(p, reload) {

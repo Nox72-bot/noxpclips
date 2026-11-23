@@ -2,7 +2,7 @@ import { $, $$, api, confirmBox, esc, fmtDur, go, h, icon, onLeave, store, toast
 
 export const RECIPES = {
   viral: { icon: "sparkles", label: "Vidéo longue → clips viraux", short: "Clips viraux",
-    options: { split: true, captions: true, hook: true, auto_zoom: true, ai_emojis: true, transitions: false, color_correct: true } },
+    options: { split: true, captions: true, hook: true, auto_zoom: true, ai_emojis: true, transitions: false, color_correct: true, progress_bar: true } },
   captions: { icon: "cc", label: "Sous-titres auto", short: "Sous-titres",
     options: { split: false, captions: true, hook: false, auto_zoom: false, ai_emojis: false } },
   reframe: { icon: "phone", label: "Recadrage 9:16", short: "Recadrage",
