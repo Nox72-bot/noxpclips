@@ -46,6 +46,11 @@ DEFAULT_SETTINGS: dict = {
     "tiktok_client_secret": os.environ.get("TIKTOK_CLIENT_SECRET", ""),
     "instagram_app_id": os.environ.get("INSTAGRAM_APP_ID", ""),
     "instagram_app_secret": os.environ.get("INSTAGRAM_APP_SECRET", ""),
+    # Bot d'inspiration TikTok
+    "scout_tags": "gta6, gtarp, gta5, squeezie",  # hashtags de ta niche à parcourir
+    "scout_auto": False,  # un passage automatique par jour
+    "scout_min_views": 20000,
+    "scout_seconds": 75,  # durée de scroll par page
     # Kit de marque
     "brand": {
         "name": "Mon kit de marque",

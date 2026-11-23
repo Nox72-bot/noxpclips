@@ -374,3 +374,15 @@ code, .code { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; fon
   .page-head .btn { min-height: 38px; padding: 8px 12px; font-size: 14px; }
   h1 { font-size: 22px; }
 }
+
+/* Inspiration TikTok */
+.insp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
+.insp { display: flex; flex-direction: column; gap: 10px; }
+.insp-top { display: flex; gap: 12px; }
+.insp-cover { position: relative; width: 96px; aspect-ratio: 9/16; border-radius: 12px; overflow: hidden; background: var(--bg-2); display: grid; place-items: center; flex: none; }
+.insp-cover img { width: 100%; height: 100%; object-fit: cover; }
+.insp-cover .score { position: absolute; left: 6px; bottom: 6px; top: auto; right: auto; width: 44px; height: 44px; font-size: 15px; }
+.insp-desc { font-weight: 600; margin: 4px 0 6px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.insp-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); }
+.insp-idea { background: var(--bg-2); border-radius: 12px; padding: 10px 12px; }
+.insp-cover .score small { font-size: 6.5px; letter-spacing: 0; }
