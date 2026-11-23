@@ -58,7 +58,7 @@ export async function renderProject(view, { id }) {
   const head = () => `<div class="page-head"><div class="row grow" style="min-width:0"><a class="icon-btn" href="#/projects">${icon("left")}</a>
       <div class="grow" style="min-width:0"><h1 style="margin:0;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(project.title)}</h1>
       <div class="small muted">${project.source_url ? `<a href="${esc(project.source_url)}" target="_blank" rel="noopener" style="text-decoration:underline">Source</a> · ` : ""}${new Date(project.created_at * 1000).toLocaleString("fr-FR")}</div></div></div>
-    <div class="row wrap">${project.status === "done" ? `<button class="btn" id="facecam">${icon("eye", "sm")} Facecam</button><button class="btn" id="reanalyze">${icon("refresh", "sm")} Relancer l'analyse</button><button class="btn primary" id="scheduleall">${icon("calendar", "sm")} Planifier une série</button>` : ""}</div></div>`;
+    <div class="row wrap">${project.status === "done" ? `<button class="btn" id="reanalyze">${icon("refresh", "sm")} Relancer l'analyse</button><button class="btn primary" id="scheduleall">${icon("calendar", "sm")} Planifier une série</button>` : ""}</div></div>`;
 
   const draw = () => {
     const p = project;
@@ -101,7 +101,6 @@ export async function renderProject(view, { id }) {
     $$("[data-f]").forEach((b) => (b.onclick = () => { filter = b.dataset.f; draw(); }));
     $("#scheduleall").onclick = () => openSchedule(p.clips.filter((c) => c.status === "done"), () => {});
     $("#reanalyze").onclick = () => reanalyzeModal(p, load);
-    $("#facecam").onclick = () => facecamModal(p, load);
     $$(".clip-card").forEach((card) => {
       const c = p.clips.find((x) => x.id === card.dataset.id);
       card.addEventListener("click", (e) => {
@@ -187,40 +186,70 @@ function editClip(c, project, reload) {
   };
 }
 
-// ---------- Facecam : l'utilisateur dessine le rectangle de la webcam sur une image du stream ----------
-function facecamModal(p, reload) {
+// ---------- Relancer l'analyse (avec la facecam : l'utilisateur dessine le rectangle de la webcam) ----------
+function reanalyzeModal(p, reload) {
+  const o = p.options;
   const meta = p.meta || {};
   const media = meta.media || {};
-  const times = p.clips.map((c) => (c.start + c.end) / 2);
+  const times = p.clips.length ? p.clips.map((c) => (c.start + c.end) / 2) : [10, 60, 180];
   let ti = 0;
-  let box = p.options.cam_box || ((meta.layout || {}).mode === "split" ? meta.layout.cam : null);
-  const m = modal(`
-    <div class="modal-head"><h2>${icon("eye")} Facecam du streamer</h2><button class="icon-btn" data-close>${icon("x")}</button></div>
-    <p class="muted" style="margin-top:0">Dessine au doigt un rectangle autour de la webcam. Les clips seront refaits avec <b>le streamer en haut et tout le gameplay en dessous</b>, avec zooms dynamiques.</p>
-    <div id="fcwrap" style="position:relative;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:${media.width || 16}/${media.height || 9}">
-      <img id="fcimg" alt="" style="width:100%;height:100%;object-fit:contain;pointer-events:none" draggable="false">
-      <div id="fcbox" style="position:absolute;border:3px solid var(--accent);box-shadow:0 0 0 9999px #0008;border-radius:6px;display:none;pointer-events:none"></div>
+  let box = o.cam_box || (meta.layout || {}).cam || null;
+  let drawn = false;  // l'utilisateur a dessiné ou effacé le rectangle
+  const m = modal(`<div class="modal-head"><h2>Relancer l'analyse</h2><button class="icon-btn" data-close>${icon("x")}</button></div>
+    <p class="muted" style="margin-top:0">Pas besoin de retélécharger : NOXPclips réutilise la vidéo et la transcription.</p>
+    <div class="grid2">
+      <label class="field">Catégorie<select class="input" id="genre">${[...GENRES, ...MORE_GENRES].map(([v, e, l]) => `<option value="${v}" ${o.genre === v ? "selected" : ""}>${e} ${l}</option>`).join("")}</select></label>
+      <label class="field">Durée des clips<select class="input" id="clip_length">${LENGTHS.map(([v, l]) => `<option value="${v}" ${o.clip_length === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="field">Nombre de clips<select class="input" id="max_clips">${[3, 5, 8, 10, 15, 20, 30].map((n) => `<option ${+o.max_clips === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="field">Moteur IA<select class="input" id="ai_engine"><option value="">Auto</option><option value="heuristic">NOXP Local</option><option value="ollama">Ollama</option><option value="gemini">Gemini</option><option value="groq">Groq</option></select></label>
     </div>
-    <div class="row wrap" style="margin-top:10px;gap:8px">
-      <button class="btn sm" id="fcnext">${icon("refresh", "sm")} Autre image</button>
-      <span class="small faint" id="fchint">${box ? "Rectangle actuel affiché — redessine-le si besoin." : "Aucune facecam détectée : dessine-la."}</span>
+    <h3 style="margin:18px 0 6px;font-size:16px">${icon("eye", "sm")} Facecam & mise en page</h3>
+    <label class="field">Mise en page<select class="input" id="layout_mode">${LAYOUTS.map(([v, l]) => `<option value="${v}" ${(o.layout_mode || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    <div id="fczone">
+      <p class="small muted" style="margin:8px 0">Dessine au doigt un rectangle autour de la webcam du streamer : il sera <b>en haut</b>, avec <b>tout le gameplay en dessous</b> et des zooms dynamiques.</p>
+      <div id="fcwrap" style="position:relative;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:${media.width || 16}/${media.height || 9}">
+        <img id="fcimg" alt="" style="width:100%;height:100%;object-fit:contain;pointer-events:none" draggable="false">
+        <div id="fcbox" style="position:absolute;border:3px solid var(--accent);box-shadow:0 0 0 9999px #0008;border-radius:6px;display:none;pointer-events:none"></div>
+      </div>
+      <div class="row wrap" style="margin-top:8px;gap:8px">
+        <button class="btn sm" id="fcnext">${icon("refresh", "sm")} Autre image</button>
+        <button class="btn sm" id="fcclear">${icon("x", "sm")} Pas de facecam</button>
+        <span class="small faint" id="fchint"></span>
+      </div>
     </div>
+    <p class="muted" style="margin-top:16px">Types de clips</p><div class="chips">${CLIP_TYPES.map(([v, e, l]) => `<button class="chip sm ${o.clip_types.includes(v) ? "on" : ""}" data-t="${v}">${e} ${l}</button>`).join("")}</div>
+    <label class="field" style="margin-top:12px">Moments à inclure<textarea class="input" id="prompt" rows="2">${esc(o.prompt || "")}</textarea></label>
+    <label class="row small" style="margin-top:12px;gap:8px">${toggle("retr", false)} Refaire aussi la transcription (si la langue était mal détectée)</label>
     <div class="modal-foot">
-      <button class="btn" id="fcnone">Pas de facecam (recadrage du jeu)</button>
-      <button class="btn" id="fcblur">Vidéo entière + fond flou</button>
-      <button class="btn" id="fcsplit" ${box ? "" : "disabled"}>Facecam + jeu recadré</button>
-      <button class="btn primary" id="fcok" ${box ? "" : "disabled"}>${icon("check", "sm")} Gameplay entier + facecam</button>
+      <button class="btn" data-close>Annuler</button>
+      ${p.clips.length ? `<button class="btn" id="layoutonly">${icon("eye", "sm")} Mise en page seule (garder les clips)</button>` : ""}
+      <button class="btn primary" id="go">${icon("refresh", "sm")} Relancer</button>
     </div>`, { wide: true });
-  const wrap = $("#fcwrap", m.el), img = $("#fcimg", m.el), rect = $("#fcbox", m.el);
+  $("#ai_engine", m.el).value = o.ai_engine || "";
+  $$("[data-t]", m.el).forEach((b) => (b.onclick = () => b.classList.toggle("on")));
+
+  // --- facecam ---
+  const sel = $("#layout_mode", m.el), zone = $("#fczone", m.el);
+  const wrap = $("#fcwrap", m.el), img = $("#fcimg", m.el), rect = $("#fcbox", m.el), hint = $("#fchint", m.el);
   const show = () => {
-    if (!box) { rect.style.display = "none"; return; }
-    const [x, y, w, h] = box;
-    Object.assign(rect.style, { display: "block", left: x * 100 + "%", top: y * 100 + "%", width: w * 100 + "%", height: h * 100 + "%" });
+    if (!box) rect.style.display = "none";
+    else {
+      const [x, y, w, h] = box;
+      Object.assign(rect.style, { display: "block", left: x * 100 + "%", top: y * 100 + "%", width: w * 100 + "%", height: h * 100 + "%" });
+    }
+    hint.textContent = box ? (drawn ? "Facecam enregistrée ✔" : "Facecam détectée — redessine-la si elle est mal placée.")
+      : "Aucune facecam : dessine-la si le streamer apparaît à l'écran.";
   };
+  const syncZone = () => zone.classList.toggle("hidden", ["fill", "fit"].includes(sel.value));
+  sel.onchange = syncZone;
+  syncZone();
   const loadImg = () => { img.src = `/api/projects/${p.id}/frame?t=${Math.round(times[ti % times.length] || 10)}`; };
   img.onload = show;
+  img.onerror = () => { hint.textContent = "Image indisponible (vidéo source supprimée ?)"; };
   loadImg();
+  show();
   $("#fcnext", m.el).onclick = () => { ti++; loadImg(); };
+  $("#fcclear", m.el).onclick = () => { box = null; drawn = true; show(); };
   let start = null;
   const pos = (e) => {
     const r = wrap.getBoundingClientRect();
@@ -235,47 +264,42 @@ function facecamModal(p, reload) {
   });
   wrap.addEventListener("pointerup", () => {
     start = null;
-    if (box && (box[2] < 0.03 || box[3] < 0.03)) box = null;  // simple tape : on ignore
+    if (box && (box[2] < 0.03 || box[3] < 0.03)) {  // simple tape : on ignore
+      box = null;
+      rect.style.display = "none";
+      hint.textContent = "Rectangle trop petit : fais glisser ton doigt pour l'agrandir.";
+      return;
+    }
+    if (!box) return;
+    drawn = true;
+    if (!sel.value) sel.value = "full";  // facecam dessinée → gameplay entier + facecam
     show();
-    $("#fcok", m.el).disabled = !box;
-    $("#fcsplit", m.el).disabled = !box;
-    $("#fchint", m.el).textContent = box ? "Parfait ! Appuie sur « Gameplay entier + facecam »." : "Rectangle trop petit : fais glisser ton doigt pour l'agrandir.";
   });
-  const apply = async (options, label) => {
+
+  const layoutOptions = () => {
+    const opts = { layout_mode: sel.value };
+    if (["fill", "fit"].includes(sel.value)) opts.cam_box = null;
+    else if (drawn) opts.cam_box = box ? box.map((v) => Math.round(v * 10000) / 10000) : null;
+    if (drawn && !box && sel.value === "split") opts.layout_mode = "fill";  // plus de facecam → recadrage du jeu
+    if (opts.layout_mode === "full") Object.assign(opts, { auto_zoom: true, progress_bar: true });
+    return opts;
+  };
+  const lo = $("#layoutonly", m.el);
+  if (lo) lo.onclick = async () => {
     try {
-      const r = await api(`/api/projects/${p.id}/rerender-all`, { method: "POST", body: { options } });
-      toast(`${label} : ${r.count} clips en cours de remontage…`, "ok");
+      const r = await api(`/api/projects/${p.id}/rerender-all`, { method: "POST", body: { options: layoutOptions() } });
+      toast(`${r.count} clips en cours de remontage…`, "ok");
       m.close(); reload();
     } catch (e) { toast(e.message, "err"); }
   };
-  const roundBox = () => box.map((v) => Math.round(v * 10000) / 10000);
-  $("#fcok", m.el).onclick = () => apply({ layout_mode: "full", cam_box: roundBox(), auto_zoom: true, progress_bar: true }, "Gameplay entier + facecam");
-  $("#fcsplit", m.el).onclick = () => apply({ layout_mode: "split", cam_box: roundBox() }, "Facecam + jeu recadré");
-  $("#fcnone", m.el).onclick = () => apply({ layout_mode: "fill", cam_box: null }, "Recadrage du jeu");
-  $("#fcblur", m.el).onclick = () => apply({ layout_mode: "fit", cam_box: null }, "Fond flou");
-}
-
-function reanalyzeModal(p, reload) {
-  const o = p.options;
-  const m = modal(`<div class="modal-head"><h2>Relancer l'analyse</h2><button class="icon-btn" data-close>${icon("x")}</button></div>
-    <p class="muted" style="margin-top:0">Pas besoin de retélécharger : NOXPclips réutilise la vidéo et la transcription.</p>
-    <div class="grid2">
-      <label class="field">Catégorie<select class="input" id="genre">${[...GENRES, ...MORE_GENRES].map(([v, e, l]) => `<option value="${v}" ${o.genre === v ? "selected" : ""}>${e} ${l}</option>`).join("")}</select></label>
-      <label class="field">Durée des clips<select class="input" id="clip_length">${LENGTHS.map(([v, l]) => `<option value="${v}" ${o.clip_length === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-      <label class="field">Nombre de clips<select class="input" id="max_clips">${[3, 5, 8, 10, 15, 20, 30].map((n) => `<option ${+o.max_clips === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
-      <label class="field">Moteur IA<select class="input" id="ai_engine"><option value="">Auto</option><option value="heuristic">NOXP Local</option><option value="ollama">Ollama</option><option value="gemini">Gemini</option><option value="groq">Groq</option></select></label>
-    </div>
-    <p class="muted">Types de clips</p><div class="chips">${CLIP_TYPES.map(([v, e, l]) => `<button class="chip sm ${o.clip_types.includes(v) ? "on" : ""}" data-t="${v}">${e} ${l}</button>`).join("")}</div>
-    <label class="field" style="margin-top:12px">Moments à inclure<textarea class="input" id="prompt" rows="2">${esc(o.prompt || "")}</textarea></label>
-    <label class="row small" style="margin-top:12px;gap:8px">${toggle("retr", false)} Refaire aussi la transcription (si la langue était mal détectée)</label>
-    <div class="modal-foot"><button class="btn" data-close>Annuler</button><button class="btn primary" id="go">${icon("refresh", "sm")} Relancer</button></div>`);
-  $("#ai_engine", m.el).value = o.ai_engine || "";
-  $$("[data-t]", m.el).forEach((b) => (b.onclick = () => b.classList.toggle("on")));
   $("#go", m.el).onclick = async () => {
     const options = { genre: $("#genre", m.el).value, clip_length: $("#clip_length", m.el).value, max_clips: +$("#max_clips", m.el).value,
-      ai_engine: $("#ai_engine", m.el).value, prompt: $("#prompt", m.el).value, clip_types: $$("[data-t].on", m.el).map((b) => b.dataset.t) };
+      ai_engine: $("#ai_engine", m.el).value, prompt: $("#prompt", m.el).value, clip_types: $$("[data-t].on", m.el).map((b) => b.dataset.t),
+      ...layoutOptions() };
     if (!options.clip_types.length) options.clip_types = ["viral"];
-    await api(`/api/projects/${p.id}/reanalyze`, { method: "POST", body: { options, retranscribe: $("#retr", m.el).checked } });
-    m.close(); reload();
+    try {
+      await api(`/api/projects/${p.id}/reanalyze`, { method: "POST", body: { options, retranscribe: $("#retr", m.el).checked } });
+      m.close(); reload();
+    } catch (e) { toast(e.message, "err"); }
   };
 }
