@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, jobs, scheduler, ytlogin
+from . import db, jobs, scheduler, scout, ytlogin
 from .config import (BRAND_DIR, DATA_DIR, FONTS_DIR, PASSWORD, PROJECTS_DIR, SECRET_KEY, SECRET_SETTING_KEYS, STATIC_DIR,
                      UPLOADS_DIR)
 from .pipeline import analyze as an
@@ -206,6 +206,45 @@ async def youtube_login_finish(request: Request):
         return ytlogin.finish(body.get("target") or "youtube", body.get("name") or "")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e)[:400])
+
+
+@app.get("/api/scout")
+def scout_list(all: bool = False):
+    data = scout.load()
+    s = db.get_settings()
+    return {"status": scout.status(), "items": scout.listing(niche_only=not all), "last_run": data.get("last_run", 0),
+            "runs": data.get("runs", [])[-5:], "tags": scout.niche_tags(s), "auto": bool(s.get("scout_auto")),
+            "min_views": int(s.get("scout_min_views") or 20000)}
+
+
+@app.post("/api/scout/run")
+def scout_run():
+    try:
+        return scout.run_async()
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/scout/cancel")
+def scout_cancel():
+    scout.cancel()
+    return scout.status()
+
+
+@app.post("/api/scout/{item_id}/dismiss")
+def scout_dismiss(item_id: str):
+    scout.dismiss(item_id)
+    return {"ok": True}
+
+
+@app.get("/api/scout/cover/{item_id}")
+def scout_cover(item_id: str):
+    if not item_id.isdigit():
+        raise HTTPException(404)
+    p = scout.COVERS / f"{item_id}.jpg"
+    if not p.is_file():
+        raise HTTPException(404)
+    return FileResponse(p, headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/api/browser-shots/{name}")

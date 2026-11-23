@@ -49,6 +49,10 @@ def tick() -> None:
                    (now,))
     for post in early + due:
         publish_post(post["id"])
+    # Bot d'inspiration TikTok : un passage par jour si activé
+    from . import scout
+
+    scout.maybe_auto_run()
 
 
 def publish_post(post_id: str) -> dict:

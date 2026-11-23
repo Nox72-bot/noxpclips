@@ -6,12 +6,14 @@ import { renderCalendar } from "./calendar.js";
 import { renderAccounts } from "./accounts.js";
 import { renderBrand } from "./brand.js";
 import { renderSettings, renderAnalytics } from "./settings.js";
+import { renderInspiration } from "./inspiration.js";
 
 const NAV = [
   { label: "Créer" },
   { path: "/", icon: "home", text: "Accueil" },
   { path: "/projects", icon: "folder", text: "Mes projets" },
   { path: "/brand", icon: "palette", text: "Kit de marque" },
+  { path: "/inspiration", icon: "sparkles", text: "Inspiration TikTok" },
   { label: "Publier" },
   { path: "/calendar", icon: "calendar", text: "Calendrier" },
   { path: "/analytics", icon: "chart", text: "Analytics" },
@@ -71,6 +73,7 @@ route("/accounts", renderAccounts);
 route("/brand", renderBrand);
 route("/settings", renderSettings);
 route("/analytics", renderAnalytics);
+route("/inspiration", renderInspiration);
 
 shell();
 window.addEventListener("noxp-route", (e) => highlight(e.detail));
