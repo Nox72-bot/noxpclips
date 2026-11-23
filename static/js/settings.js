@@ -1,5 +1,6 @@
 import { $, $$, PLATFORMS, STATUS_LABELS, api, esc, fmtDate, icon, toast, uploadWithProgress } from "./core.js";
 import { openPost } from "./schedule.js";
+import { youtubeLoginModal } from "./ytlogin.js";
 
 const ENGINES = [
   ["auto", "Auto", "Utilise la meilleure IA gratuite disponible, sinon les heuristiques locales."],
@@ -51,8 +52,9 @@ export async function renderSettings(view) {
 
       <div class="card stack">
         <h2>${icon("download")} Téléchargement</h2>
-        <p class="small muted" style="margin:0">Si YouTube bloque ton serveur (« confirm you're not a bot »), exporte un fichier <code>cookies.txt</code> de ton navigateur (extension « Get cookies.txt LOCALLY ») et importe-le ici.</p>
-        <div class="row wrap"><label class="btn">${icon("upload", "sm")} Importer cookies.txt<input type="file" id="cookies" accept=".txt,text/plain" hidden></label>
+        <p class="small muted" style="margin:0">Si YouTube bloque ton serveur (« confirm you're not a bot »), connecte-toi à YouTube depuis NOXPclips (marche sur iPad), ou importe un fichier <code>cookies.txt</code> exporté depuis un ordinateur.</p>
+        <div class="row wrap"><button class="btn primary" id="ytlogin">${icon("play", "sm")} Se connecter à YouTube</button>
+          <label class="btn">${icon("upload", "sm")} Importer cookies.txt<input type="file" id="cookies" accept=".txt,text/plain" hidden></label>
           ${s.ytdlp_cookies ? `<span class="pill free">Cookies actifs</span><button class="btn ghost danger" id="delcookies">Retirer</button>` : ""}</div>
       </div>
 
@@ -95,6 +97,7 @@ export async function renderSettings(view) {
     toast("Cookies importés ✔", "ok");
     renderSettings(view);
   };
+  $("#ytlogin").onclick = () => youtubeLoginModal(() => renderSettings(view));
   $("#cleanup").onclick = async () => {
     const r = await api("/api/storage/cleanup", { method: "POST" });
     toast(`${r.freed_gb} Go libérés ✔`, "ok");

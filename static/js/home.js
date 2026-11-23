@@ -1,3 +1,4 @@
+import { youtubeLoginModal } from "./ytlogin.js";
 import { $, $$, api, confirmBox, esc, fmtDur, go, h, icon, onLeave, store, toast, uploadWithProgress } from "./core.js";
 
 export const RECIPES = {
@@ -101,6 +102,12 @@ export async function renderHome(view) {
       newDraft({ url, ...info }, recipe);
     } catch (err) {
       toast(err.message, "err");
+      if (/anti-robot|not a bot/i.test(err.message)) {
+        if (await confirmBox("YouTube bloque le serveur. Te connecter à YouTube (une seule fois) pour débloquer ?", "Se connecter", false)) {
+          youtubeLoginModal();
+        }
+        return;
+      }
       if (await confirmBox("Impossible de lire les infos du lien. Continuer quand même ?", "Continuer", false)) {
         newDraft({ url, title: "Vidéo", duration: 0 }, recipe);
       }

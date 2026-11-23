@@ -4,9 +4,10 @@
   "hostRequirements": { "cpus": 2, "memory": "8gb" },
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "postStartCommand": "bash .devcontainer/start-server.sh",
-  "forwardPorts": [8000],
+  "forwardPorts": [8000, 6080],
   "portsAttributes": {
-    "8000": { "label": "NOXPclips", "onAutoForward": "openBrowser" }
+    "8000": { "label": "NOXPclips", "onAutoForward": "openBrowser" },
+    "6080": { "label": "Connexion YouTube", "onAutoForward": "silent" }
   },
   "customizations": {
     "codespaces": { "openFiles": ["README.md"] }
