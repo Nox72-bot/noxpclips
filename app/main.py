@@ -795,9 +795,37 @@ def stats():
 
 # ------------------------------------------------------------------ Interface
 
+def _ui_version() -> str:
+    """Empreinte des fichiers de l'interface : elle change à chaque mise à jour de NOXPclips."""
+    h = hashlib.sha1()
+    for p in sorted(STATIC_DIR.rglob("*")):
+        if p.is_file() and p.suffix in (".js", ".css"):
+            h.update(p.relative_to(STATIC_DIR).as_posix().encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()[:10]
+
+
+UI_VERSION = _ui_version()
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+    # Les fichiers de l'interface sont servis sous /ui/<version>/ : après une mise à jour, les adresses changent
+    # et Safari ne peut plus réutiliser d'anciens fichiers gardés en cache.
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = (html.replace("/static/app.css?v=1", f"/ui/{UI_VERSION}/app.css")
+            .replace("/static/js/main.js?v=1", f"/ui/{UI_VERSION}/js/main.js"))
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/ui/{ver}/{path:path}")
+def ui_file(ver: str, path: str):
+    base = STATIC_DIR.resolve()
+    p = (base / path).resolve()
+    if not p.is_relative_to(base) or not p.is_file():
+        raise HTTPException(404)
+    cache = "public, max-age=31536000, immutable" if ver == UI_VERSION else "no-cache"
+    return FileResponse(p, headers={"Cache-Control": cache})
 
 
 @app.get("/sw.js")
